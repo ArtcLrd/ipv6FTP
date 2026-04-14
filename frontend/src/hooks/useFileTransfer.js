@@ -6,7 +6,7 @@ import { chunkFile, FileReceiver, CHUNK_SIZE } from "../lib/fileChunker";
  *
  * @param {RTCDataChannel|null} channel — the open DataChannel
  * @returns {{ sharedFiles, addSharedFile, removeSharedFile,
- *             remoteFiles, transfers, sendFile }}
+ *             remoteFiles, transfers, requestFile }}
  */
 export function useFileTransfer(channel) {
   // Files this user has "shared" (their manifest sent to the remote peer)
@@ -20,8 +20,9 @@ export function useFileTransfer(channel) {
   const receiverRef = useRef(null);
   const activeTransferIdRef = useRef(null);
 
+  // ── Functions (Defined first to avoid Temporal Dead Zone errors) ───────
+
   // Send our file manifest to the peer whenever our shared files change
-  // Also called when the channel first opens
   const sendManifest = useCallback(
     (ch, files) => {
       if (!ch || ch.readyState !== "open") return;
@@ -30,6 +31,78 @@ export function useFileTransfer(channel) {
     },
     []
   );
+
+  /**
+   * Sends a file from our shared list to the remote peer.
+   * The remote peer requests it by name via a "request-file" message.
+   */
+  const handleFileRequest = useCallback(
+    async (name, ch) => {
+      const fileObj = sharedFiles.find((f) => f.name === name);
+      if (!fileObj) return;
+
+      const id = `send-${Date.now()}`;
+      setTransfers((prev) => [
+        ...prev,
+        {
+          id,
+          name: fileObj.name,
+          size: fileObj.file.size,
+          bytes: 0,
+          total: fileObj.file.size,
+          direction: "upload",
+          startTime: Date.now(),
+        },
+      ]);
+
+      let bytesSent = 0;
+      for await (const item of chunkFile(fileObj.file)) {
+        if (item.type === "chunk") {
+          // Flow control: wait if the buffer is too full
+          while (ch.bufferedAmount > CHUNK_SIZE * 16) {
+            await new Promise((r) => setTimeout(r, 10));
+          }
+          ch.send(item.data);
+          bytesSent += item.data.byteLength;
+          setTransfers((prev) =>
+            prev.map((t) => (t.id === id ? { ...t, bytes: bytesSent } : t))
+          );
+        } else if (item.type === "file-start" || item.type === "file-end") {
+          ch.send(JSON.stringify(item));
+        }
+      }
+
+      setTransfers((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, done: true } : t))
+      );
+    },
+    [sharedFiles]
+  );
+
+  /**
+   * Download a file from the remote peer by requesting it via DataChannel.
+   */
+  const requestFile = useCallback(
+    (name) => {
+      if (channel && channel.readyState === "open") {
+        channel.send(JSON.stringify({ type: "request-file", name }));
+      }
+    },
+    [channel]
+  );
+
+  const addSharedFile = useCallback((file) => {
+    setSharedFiles((prev) => {
+      if (prev.find((f) => f.name === file.name)) return prev;
+      return [...prev, { name: file.name, size: file.size, type: file.type, file }];
+    });
+  }, []);
+
+  const removeSharedFile = useCallback((name) => {
+    setSharedFiles((prev) => prev.filter((f) => f.name !== name));
+  }, []);
+
+  // ── Effects ──────────────────────────────────────────────────────────
 
   // When channel opens, send our current manifest
   useEffect(() => {
@@ -122,76 +195,6 @@ export function useFileTransfer(channel) {
     channel.addEventListener("message", handleMessage);
     return () => channel.removeEventListener("message", handleMessage);
   }, [channel, handleFileRequest]);
-
-  /**
-   * Sends a file from our shared list to the remote peer.
-   * The remote peer requests it by name via a "request-file" message.
-   */
-  const handleFileRequest = useCallback(
-    async (name, ch) => {
-      const fileObj = sharedFiles.find((f) => f.name === name);
-      if (!fileObj) return;
-
-      const id = `send-${Date.now()}`;
-      setTransfers((prev) => [
-        ...prev,
-        {
-          id,
-          name: fileObj.name,
-          size: fileObj.file.size,
-          bytes: 0,
-          total: fileObj.file.size,
-          direction: "upload",
-          startTime: Date.now(),
-        },
-      ]);
-
-      let bytesSent = 0;
-      for await (const item of chunkFile(fileObj.file)) {
-        if (item.type === "chunk") {
-          // Flow control: wait if the buffer is too full
-          while (ch.bufferedAmount > CHUNK_SIZE * 16) {
-            await new Promise((r) => setTimeout(r, 10));
-          }
-          ch.send(item.data);
-          bytesSent += item.data.byteLength;
-          setTransfers((prev) =>
-            prev.map((t) => (t.id === id ? { ...t, bytes: bytesSent } : t))
-          );
-        } else if (item.type === "file-start" || item.type === "file-end") {
-          ch.send(JSON.stringify(item));
-        }
-      }
-
-      setTransfers((prev) =>
-        prev.map((t) => (t.id === id ? { ...t, done: true } : t))
-      );
-    },
-    [sharedFiles]
-  );
-
-  /**
-   * Download a file from the remote peer by requesting it via DataChannel.
-   */
-  const requestFile = useCallback(
-    (name) => {
-      if (channel && channel.readyState === "open") {
-        channel.send(JSON.stringify({ type: "request-file", name }));
-      }
-    },
-    [channel]
-  );
-
-  const addSharedFile = useCallback((file) => {
-    setSharedFiles((prev) => {
-      if (prev.find((f) => f.name === file.name)) return prev;
-      return [...prev, { name: file.name, size: file.size, type: file.type, file }];
-    });
-  }, []);
-
-  const removeSharedFile = useCallback((name) => {
-    setSharedFiles((prev) => prev.filter((f) => f.name !== name));
-  }, []);
 
   return {
     sharedFiles,
