@@ -46,13 +46,14 @@ export function useFileTransfer(channel) {
       const data = event.data;
 
       if (typeof data === "string") {
-        // JSON control message
         let msg;
         try {
           msg = JSON.parse(data);
         } catch {
           return;
         }
+
+        console.debug("📡 Signaling Message:", msg.type, msg);
 
         switch (msg.type) {
           case "manifest":
@@ -81,11 +82,11 @@ export function useFileTransfer(channel) {
 
           case "file-end": {
             const receiver = receiverRef.current;
-            if (receiver && receiver.isComplete()) {
+            if (receiver) {
+              console.log("📂 File received, saving...", receiver.name);
               await receiver.save();
             }
             receiverRef.current = null;
-            // Mark transfer complete
             const tid = activeTransferIdRef.current;
             setTransfers((prev) =>
               prev.map((t) => (t.id === tid ? { ...t, done: true } : t))
@@ -95,7 +96,7 @@ export function useFileTransfer(channel) {
           }
 
           case "request-file":
-            // Remote peer is requesting one of our shared files
+            console.log("📤 Peer requested file:", msg.name);
             handleFileRequest(msg.name, channel);
             break;
 
@@ -103,7 +104,6 @@ export function useFileTransfer(channel) {
             break;
         }
       } else if (data instanceof ArrayBuffer) {
-        // Binary chunk
         const receiver = receiverRef.current;
         if (!receiver) return;
         receiver.addChunk(data);
@@ -121,7 +121,7 @@ export function useFileTransfer(channel) {
 
     channel.addEventListener("message", handleMessage);
     return () => channel.removeEventListener("message", handleMessage);
-  }, [channel]);
+  }, [channel, handleFileRequest]);
 
   /**
    * Sends a file from our shared list to the remote peer.
