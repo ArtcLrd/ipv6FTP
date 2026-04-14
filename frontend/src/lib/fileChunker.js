@@ -2,7 +2,7 @@
 // Handles splitting files into chunks for DataChannel transmission
 // and reassembling received chunks back into a Blob.
 
-export const CHUNK_SIZE = 64 * 1024; // 64KB per chunk
+export const CHUNK_SIZE = 256 * 1024; // 256KB — near DataChannel max, safe cross-browser
 
 /**
  * Reads a File object as an ArrayBuffer and splits it into chunks.

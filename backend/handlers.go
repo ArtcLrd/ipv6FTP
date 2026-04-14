@@ -72,12 +72,6 @@ func wsHandler(hub *Hub) http.HandlerFunc {
 			return
 		}
 
-		// Check if room is already full before upgrading
-		if hub.RoomCount(roomID) >= 2 {
-			http.Error(w, "room is full", http.StatusConflict)
-			return
-		}
-
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			log.Printf("WebSocket upgrade failed: %v", err)
@@ -85,16 +79,9 @@ func wsHandler(hub *Hub) http.HandlerFunc {
 		}
 
 		client := NewClient(hub, roomID, conn)
+		hub.Join(roomID, client)
 
-		if !hub.Join(roomID, client) {
-			// Race condition: another client joined between the count check and Join
-			conn.WriteMessage(websocket.CloseMessage,
-				websocket.FormatCloseMessage(websocket.CloseTryAgainLater, "room is full"))
-			conn.Close()
-			return
-		}
-
-		log.Printf("[room:%s] peer connected (peers in room: %d)", roomID, hub.RoomCount(roomID))
+		log.Printf("[room:%s] client connected (active: %d)", roomID, hub.RoomCount(roomID))
 
 		// Run pumps in separate goroutines (standard gorilla/websocket pattern)
 		go client.WritePump()

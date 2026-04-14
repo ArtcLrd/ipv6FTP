@@ -56,11 +56,22 @@ export function useFileTransfer(channel) {
       ]);
 
       let bytesSent = 0;
+
+      // Event-driven flow control: instead of sleeping every 10ms,
+      // we set a low-water threshold on the DataChannel and wait for
+      // the 'bufferedamountlow' event — zero wasted time.
+      ch.bufferedAmountLowThreshold = CHUNK_SIZE * 4; // ~1MB low-water mark
+
       for await (const item of chunkFile(fileObj.file)) {
         if (item.type === "chunk") {
-          // Flow control: wait if the buffer is too full
-          while (ch.bufferedAmount > CHUNK_SIZE * 16) {
-            await new Promise((r) => setTimeout(r, 10));
+          // If the send buffer is too full, pause until it drains
+          if (ch.bufferedAmount > CHUNK_SIZE * 16) {
+            await new Promise((resolve) => {
+              ch.onbufferedamountlow = () => {
+                ch.onbufferedamountlow = null;
+                resolve();
+              };
+            });
           }
           ch.send(item.data);
           bytesSent += item.data.byteLength;

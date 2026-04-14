@@ -4,21 +4,30 @@ import { ICE_CONFIG } from "../lib/iceConfig";
 /**
  * useWebRTC — manages the RTCPeerConnection lifecycle and DataChannel.
  *
- * @param {string|null} role         — "offerer" | "answerer" | null
- * @param {Function}    sendSignal   — function to send a signaling message to the peer
- * @param {Function}    onChannel    — callback when the DataChannel is open: (channel) => void
+ * Supports automatic reconnection: whenever `role` changes (e.g. a surviving
+ * peer is reassigned from "answerer" to "offerer" after their peer leaves and
+ * a queued client is promoted), the old RTCPeerConnection is torn down and a
+ * fresh one is created in its place.
  *
- * @returns {{ peerConn, dataChannel, iceState, connState, handleSignal }}
+ * @param {string|null} role         — "offerer" | "answerer" | null
+ * @param {Function}    sendSignal   — function to send a signaling message
+ * @param {Function}    onChannel    — callback when DataChannel opens: (channel) => void
+ *
+ * @returns {{ iceState, connState, handleSignal, cleanup }}
  */
 export function useWebRTC(role, sendSignal, onChannel) {
   const pcRef = useRef(null);
   const channelRef = useRef(null);
   const [iceState, setIceState] = useState("new");
   const [connState, setConnState] = useState("new");
+
+  // Keep latest callback refs to avoid stale closures in event handlers
   const onChannelRef = useRef(onChannel);
   onChannelRef.current = onChannel;
+  const sendSignalRef = useRef(sendSignal);
+  sendSignalRef.current = sendSignal;
 
-  // Teardown helper
+  // Teardown helper — closes current PC and channel
   const cleanup = useCallback(() => {
     if (channelRef.current) {
       channelRef.current.close();
@@ -33,63 +42,53 @@ export function useWebRTC(role, sendSignal, onChannel) {
   }, []);
 
   useEffect(() => {
+    // No role → nothing to set up
     if (!role || !sendSignal) return;
 
+    // Create a fresh RTCPeerConnection for this role
     const pc = new RTCPeerConnection(ICE_CONFIG);
     pcRef.current = pc;
 
-    // --- ICE Candidate handling ---
+    // ── ICE Candidate handling ──────────────────────────────────────────
     pc.onicecandidate = ({ candidate }) => {
       if (candidate) {
-        sendSignal({ type: "ice-candidate", payload: candidate.toJSON() });
+        sendSignalRef.current?.({ type: "ice-candidate", payload: candidate.toJSON() });
       }
     };
 
-    pc.oniceconnectionstatechange = () => {
-      setIceState(pc.iceConnectionState);
-    };
+    pc.oniceconnectionstatechange = () => setIceState(pc.iceConnectionState);
+    pc.onconnectionstatechange    = () => setConnState(pc.connectionState);
 
-    pc.onconnectionstatechange = () => {
-      setConnState(pc.connectionState);
-    };
-
-    // --- DataChannel setup ---
+    // ── DataChannel setup ───────────────────────────────────────────────
     const setupChannel = (channel) => {
       channelRef.current = channel;
       channel.binaryType = "arraybuffer";
 
-      channel.onopen = () => {
-        onChannelRef.current?.(channel);
-      };
-
-      channel.onclose = () => {
-        channelRef.current = null;
-      };
+      channel.onopen  = () => onChannelRef.current?.(channel);
+      channel.onclose = () => { channelRef.current = null; };
     };
 
     if (role === "offerer") {
-      // Offerer creates the DataChannel
+      // Offerer: create DataChannel, then send SDP offer
       const channel = pc.createDataChannel("fileTransfer", { ordered: true });
       setupChannel(channel);
 
-      // Create and send the SDP offer
       pc.createOffer().then((offer) => {
         pc.setLocalDescription(offer);
-        sendSignal({ type: "offer", payload: offer });
+        sendSignalRef.current?.({ type: "offer", payload: offer });
       });
-    } else if (role === "answerer") {
-      // Answerer receives the DataChannel
-      pc.ondatachannel = ({ channel }) => {
-        setupChannel(channel);
-      };
+    } else {
+      // Answerer: wait for DataChannel from the offerer
+      pc.ondatachannel = ({ channel }) => setupChannel(channel);
     }
 
+    // Re-run if role changes (e.g. surviving peer promoted to offerer)
     return cleanup;
   }, [role, sendSignal, cleanup]);
 
   /**
-   * handleSignal — processes incoming signaling messages from the peer.
-   * Call this from the useSignaling onMessage callback.
+   * handleSignal — processes incoming SDP/ICE signaling messages.
+   * Intended to be called from the useSignaling onMessage callback.
    */
   const handleSignal = useCallback(async (msg) => {
     const pc = pcRef.current;
@@ -101,33 +100,26 @@ export function useWebRTC(role, sendSignal, onChannel) {
           await pc.setRemoteDescription(new RTCSessionDescription(msg.payload));
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
-          sendSignal({ type: "answer", payload: answer });
+          sendSignalRef.current?.({ type: "answer", payload: answer });
           break;
         }
-        case "answer": {
+        case "answer":
           await pc.setRemoteDescription(new RTCSessionDescription(msg.payload));
           break;
-        }
-        case "ice-candidate": {
+
+        case "ice-candidate":
           if (msg.payload) {
             await pc.addIceCandidate(new RTCIceCandidate(msg.payload));
           }
           break;
-        }
+
         default:
           break;
       }
     } catch (err) {
       console.error("[webrtc] signal handling error:", err);
     }
-  }, [sendSignal]);
+  }, []);
 
-  return {
-    peerConn: pcRef.current,
-    dataChannel: channelRef.current,
-    iceState,
-    connState,
-    handleSignal,
-    cleanup,
-  };
+  return { iceState, connState, handleSignal, cleanup };
 }

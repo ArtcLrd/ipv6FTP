@@ -29,6 +29,7 @@ export function RoomPanel({
   wsState,
   iceState,
   peerStatus,
+  queuePosition,
   signalingError,
   onCreateRoom,
   onJoinRoom,
@@ -103,7 +104,19 @@ export function RoomPanel({
         </div>
       )}
 
-      {roomID && (
+      {/* ── Queue status ── */}
+      {queuePosition !== null && (
+        <div className="room-panel__queue">
+          <span className="spinner" />
+          <div>
+            <div className="room-panel__queue-title">You are <strong>#{queuePosition}</strong> in the queue</div>
+            <div className="room-panel__queue-sub">You'll auto-connect when a slot opens.</div>
+          </div>
+        </div>
+      )}
+
+      {roomID && !queuePosition && (
+
         <div className="room-panel__room-info">
           <div className="room-panel__room-label">
             {mode === "create" ? "Share this Room ID with your peer:" : "Joined Room:"}

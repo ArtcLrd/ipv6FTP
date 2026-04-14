@@ -12,35 +12,85 @@ import { TransferProgress } from "./components/TransferProgress";
 export default function App() {
   const { ip, isIPv6, loading: ipLoading, error: ipError } = useMyIP();
 
-  // Room and connection state
+  // ── Room & connection state ─────────────────────────────────────────────
   const [roomID, setRoomID] = useState(null);
-  const [role, setRole] = useState(null); // "offerer" | "answerer"
+  const [role, setRole] = useState(null);            // "offerer" | "answerer" | null
   const [peerStatus, setPeerStatus] = useState("waiting"); // "waiting" | "joined"
   const [dataChannel, setDataChannel] = useState(null);
+  const [queuePosition, setQueuePosition] = useState(null); // null = not queued, N = position
+
+  // Track whether this peer was previously active (to detect rejoins after peer-left)
+  const wasActiveRef = useRef(false);
 
   // ── Signaling ──────────────────────────────────────────────────────────
   const handleSignalRef = useRef(null);
 
   const onSignalingMessage = useCallback((msg) => {
+    // Decode position from payload if present
+    const payload = msg.payload
+      ? (typeof msg.payload === "string" ? JSON.parse(msg.payload) : msg.payload)
+      : null;
+
     switch (msg.type) {
+      // ── Standard pair handshake ──────────────────────────────────────
       case "peer-joined":
-        // We are the offerer — peer has arrived, WebRTC hook will start offer
+        // Either: (a) original room creator waits for joiner,
+        //         (b) surviving peer being notified that a queued user was promoted.
+        // In case (b) we need to reassign the surviving peer as Offerer so they
+        // can initiate a new WebRTC handshake with the promoted Answerer.
+        setQueuePosition(null);
         setPeerStatus("joined");
+        if (wasActiveRef.current) {
+          // Surviving peer: was previously connected, now needs to reconnect.
+          // Flip to offerer role so a new offer is created automatically.
+          setRole("offerer");
+        }
+        wasActiveRef.current = false;
         break;
+
       case "room-ready":
-        // We are the answerer — we joined and are waiting for an offer
+        // Peer is answerer — wait for offer from the offerer.
+        setQueuePosition(null);
         setPeerStatus("joined");
         break;
+
+      // ── Queue messages ───────────────────────────────────────────────
+      case "queued":
+        // We're in queue — room was full when we joined.
+        setQueuePosition(payload?.position ?? 1);
+        setPeerStatus("waiting");
+        break;
+
+      case "queue-position":
+        // Our queue position changed (someone ahead of us left).
+        setQueuePosition(payload?.position ?? null);
+        break;
+
+      case "queue-promoted":
+        // We moved from queue to active — we're the Answerer.
+        setQueuePosition(null);
+        setRole("answerer");
+        setPeerStatus("joined");
+        break;
+
+      // ── Disconnect ───────────────────────────────────────────────────
       case "peer-left":
+        // Our current peer disconnected. If the queue has someone, the server
+        // will immediately follow with "peer-joined" (for us) or "queue-promoted"
+        // (for the queued client). We mark wasActive so the peer-joined handler
+        // knows to flip our role to offerer for the new handshake.
+        wasActiveRef.current = true;
         setPeerStatus("waiting");
         setDataChannel(null);
         break;
+
+      // ── WebRTC signaling passthrough ─────────────────────────────────
       case "offer":
       case "answer":
       case "ice-candidate":
-        // Forward WebRTC signaling messages to the WebRTC hook
         handleSignalRef.current?.(msg);
         break;
+
       default:
         break;
     }
@@ -52,13 +102,12 @@ export default function App() {
   );
 
   // ── WebRTC ─────────────────────────────────────────────────────────────
-  // Role is set when peer joins: offerer creates offer immediately.
-  // Answerer role is set when the answerer joins (they wait for offer).
-  const activeRole =
-    peerStatus === "joined" ? role : null;
+  // Only activate WebRTC once a peer has joined (or we've been promoted).
+  const activeRole = peerStatus === "joined" ? role : null;
 
   const onChannelOpen = useCallback((ch) => {
     setDataChannel(ch);
+    wasActiveRef.current = false; // reset: we're fully connected now
   }, []);
 
   const { iceState, connState, handleSignal } = useWebRTC(
@@ -67,7 +116,7 @@ export default function App() {
     onChannelOpen
   );
 
-  // Keep handleSignal ref updated for the signaling callback
+  // Keep handleSignal ref fresh (avoids stale closure in onSignalingMessage)
   handleSignalRef.current = handleSignal;
 
   // ── File Transfer ──────────────────────────────────────────────────────
@@ -83,12 +132,12 @@ export default function App() {
   // ── Room actions ───────────────────────────────────────────────────────
   const handleCreateRoom = useCallback((id) => {
     setRoomID(id);
-    setRole("offerer"); // Creator is always the offerer
+    setRole("offerer"); // Creator waits as offerer until second peer joins
   }, []);
 
   const handleJoinRoom = useCallback((id) => {
     setRoomID(id);
-    setRole("answerer"); // Joiner is always the answerer
+    setRole("answerer"); // Joiner waits as answerer until offer arrives
   }, []);
 
   const isConnected = iceState === "connected" || iceState === "completed";
@@ -109,7 +158,6 @@ export default function App() {
       <main className="main">
         {/* ── Left Column ── */}
         <div className="column column--left">
-          {/* IP info */}
           <section className="card">
             <IPDisplay
               ip={ip}
@@ -119,20 +167,19 @@ export default function App() {
             />
           </section>
 
-          {/* Room */}
           <section className="card">
             <RoomPanel
               roomID={roomID}
               wsState={wsState}
               iceState={iceState}
               peerStatus={peerStatus}
+              queuePosition={queuePosition}
               signalingError={signalingError}
               onCreateRoom={handleCreateRoom}
               onJoinRoom={handleJoinRoom}
             />
           </section>
 
-          {/* Transfer progress */}
           {transfers.length > 0 && (
             <section className="card">
               <TransferProgress transfers={transfers} />
@@ -142,7 +189,6 @@ export default function App() {
 
         {/* ── Right Column ── */}
         <div className="column column--right">
-          {/* Upload zone */}
           <section className="card">
             <UploadZone
               onFilesAdded={addSharedFile}
@@ -150,7 +196,6 @@ export default function App() {
             />
           </section>
 
-          {/* File explorer */}
           <section className="card">
             <FileExplorer
               sharedFiles={sharedFiles}
