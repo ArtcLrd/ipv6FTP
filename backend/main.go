@@ -6,7 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
+	"path"
 	"strings"
 )
 
@@ -55,8 +55,9 @@ func spaHandler(embeddedFS embed.FS, folder string) http.HandlerFunc {
 			return
 		}
 
-		// Clean the path and strip leading slash to check existence in the FS
-		clean := filepath.ToSlash(filepath.Clean(r.URL.Path))
+		// Clean the path to check existence in the FS.
+		// Use 'path' package because embed.FS paths are always forward-slash.
+		clean := path.Clean(r.URL.Path)
 		clean = strings.TrimPrefix(clean, "/")
 
 		if clean == "" {
@@ -64,7 +65,7 @@ func spaHandler(embeddedFS embed.FS, folder string) http.HandlerFunc {
 		}
 
 		_, err := subFS.Open(clean)
-		if os.IsNotExist(err) || err != nil {
+		if err != nil {
 			// File doesn't exist → serve index.html for React Router to handle
 			r.URL.Path = "/"
 		}

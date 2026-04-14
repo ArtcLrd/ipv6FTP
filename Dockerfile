@@ -34,7 +34,8 @@ COPY backend/ ./
 COPY --from=frontend-builder /app/frontend/dist ./dist
 
 # Build the binary — dist is now embedded inside it
-RUN go build -ldflags="-s -w" -o ipv6ftp .
+# CGO_ENABLED=0 ensures a static binary that runs on Alpine
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -a -tags netgo -o ipv6ftp .
 
 # ─────────────────────────────────────────────────────────────────
 # Stage 3: Minimal runtime image (~10MB total)
