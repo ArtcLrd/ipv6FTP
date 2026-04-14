@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { ICE_CONFIG } from "../lib/iceConfig";
+import { ICE_CONFIG, detectConnectionIPVersion } from "../lib/iceConfig";
 
 /**
  * useWebRTC — manages the RTCPeerConnection lifecycle and DataChannel.
@@ -20,6 +20,7 @@ export function useWebRTC(role, sendSignal, onChannel) {
   const channelRef = useRef(null);
   const [iceState, setIceState] = useState("new");
   const [connState, setConnState] = useState("new");
+  const [connectionIPVersion, setConnectionIPVersion] = useState(null); // "IPv4" | "IPv6" | null
 
   // Keep latest callback refs to avoid stale closures in event handlers
   const onChannelRef = useRef(onChannel);
@@ -39,6 +40,7 @@ export function useWebRTC(role, sendSignal, onChannel) {
     }
     setIceState("new");
     setConnState("new");
+    setConnectionIPVersion(null);
   }, []);
 
   useEffect(() => {
@@ -56,7 +58,18 @@ export function useWebRTC(role, sendSignal, onChannel) {
       }
     };
 
-    pc.oniceconnectionstatechange = () => setIceState(pc.iceConnectionState);
+    pc.oniceconnectionstatechange = () => {
+      const s = pc.iceConnectionState;
+      setIceState(s);
+      // Detect which IP version the active candidate pair is using
+      if (s === "connected" || s === "completed") {
+        detectConnectionIPVersion(pc).then((ver) => {
+          if (ver) setConnectionIPVersion(ver);
+        });
+      } else if (s === "disconnected" || s === "failed" || s === "closed") {
+        setConnectionIPVersion(null);
+      }
+    };
     pc.onconnectionstatechange    = () => setConnState(pc.connectionState);
 
     // ── DataChannel setup ───────────────────────────────────────────────
@@ -121,5 +134,5 @@ export function useWebRTC(role, sendSignal, onChannel) {
     }
   }, []);
 
-  return { iceState, connState, handleSignal, cleanup };
+  return { iceState, connState, connectionIPVersion, handleSignal, cleanup };
 }

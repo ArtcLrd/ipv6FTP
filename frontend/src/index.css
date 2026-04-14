@@ -693,6 +693,15 @@ code, .room-panel__room-id {
   font-weight: 600;
 }
 
+/* Active P2P transport indicator (shown after ICE connected) */
+.footer__transport-badge {
+  font-weight: 600;
+  font-size: 0.78rem;
+}
+
+.footer__transport-badge--v6 { color: var(--accent-cyan); }
+.footer__transport-badge--v4 { color: var(--accent-amber); }
+
 .footer code { color: var(--accent-green); }
 
 /* ═══════════════════════════════════════════════════════════

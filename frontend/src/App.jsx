@@ -110,7 +110,7 @@ export default function App() {
     wasActiveRef.current = false; // reset: we're fully connected now
   }, []);
 
-  const { iceState, connState, handleSignal } = useWebRTC(
+  const { iceState, connState, connectionIPVersion, handleSignal } = useWebRTC(
     activeRole,
     sendSignal,
     onChannelOpen
@@ -215,7 +215,15 @@ export default function App() {
         <span>
           ICE: <code>{iceState}</code>
         </span>
-        {isIPv6 && (
+        {connectionIPVersion && (
+          <>
+            <span className="footer__divider">|</span>
+            <span className={`footer__transport-badge footer__transport-badge--${connectionIPVersion === "IPv6" ? "v6" : "v4"}`}>
+              P2P via {connectionIPVersion} {connectionIPVersion === "IPv6" ? "⚡" : ""}
+            </span>
+          </>
+        )}
+        {isIPv6 && !connectionIPVersion && (
           <>
             <span className="footer__divider">|</span>
             <span className="footer__ipv6-badge">IPv6 ⚡</span>
