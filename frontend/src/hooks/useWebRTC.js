@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { ICE_CONFIG, detectConnectionIPVersion } from "../lib/iceConfig";
+import { getIceConfig, detectConnectionIPVersion } from "../lib/iceConfig";
 
 /**
  * useWebRTC — manages the RTCPeerConnection lifecycle and DataChannel.
@@ -47,56 +47,68 @@ export function useWebRTC(role, sendSignal, onChannel) {
     // No role → nothing to set up
     if (!role || !sendSignal) return;
 
-    // Create a fresh RTCPeerConnection for this role
-    const pc = new RTCPeerConnection(ICE_CONFIG);
-    pcRef.current = pc;
+    let cancelled = false; // guard: prevent state updates if effect re-runs before fetch resolves
 
-    // ── ICE Candidate handling ──────────────────────────────────────────
-    pc.onicecandidate = ({ candidate }) => {
-      if (candidate) {
-        sendSignalRef.current?.({ type: "ice-candidate", payload: candidate.toJSON() });
-      }
-    };
+    // Fetch TURN credentials then create RTCPeerConnection.
+    // getIceConfig() falls back to STUN-only if TURN is not configured.
+    (async () => {
+      const iceConfig = await getIceConfig();
+      if (cancelled) return;
 
-    pc.oniceconnectionstatechange = () => {
-      const s = pc.iceConnectionState;
-      setIceState(s);
-      // Detect which IP version the active candidate pair is using
-      if (s === "connected" || s === "completed") {
-        detectConnectionIPVersion(pc).then((ver) => {
-          if (ver) setConnectionIPVersion(ver);
+      // Create a fresh RTCPeerConnection for this role
+      const pc = new RTCPeerConnection(iceConfig);
+      pcRef.current = pc;
+
+      // ── ICE Candidate handling ──────────────────────────────────────────
+      pc.onicecandidate = ({ candidate }) => {
+        if (candidate) {
+          sendSignalRef.current?.({ type: "ice-candidate", payload: candidate.toJSON() });
+        }
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        const s = pc.iceConnectionState;
+        setIceState(s);
+        // Detect which IP version the active candidate pair is using
+        if (s === "connected" || s === "completed") {
+          detectConnectionIPVersion(pc).then((ver) => {
+            if (ver) setConnectionIPVersion(ver);
+          });
+        } else if (s === "disconnected" || s === "failed" || s === "closed") {
+          setConnectionIPVersion(null);
+        }
+      };
+      pc.onconnectionstatechange = () => setConnState(pc.connectionState);
+
+      // ── DataChannel setup ───────────────────────────────────────────────
+      const setupChannel = (channel) => {
+        channelRef.current = channel;
+        channel.binaryType = "arraybuffer";
+
+        channel.onopen  = () => onChannelRef.current?.(channel);
+        channel.onclose = () => { channelRef.current = null; };
+      };
+
+      if (role === "offerer") {
+        // Offerer: create DataChannel, then send SDP offer
+        const channel = pc.createDataChannel("fileTransfer", { ordered: true });
+        setupChannel(channel);
+
+        pc.createOffer().then((offer) => {
+          pc.setLocalDescription(offer);
+          sendSignalRef.current?.({ type: "offer", payload: offer });
         });
-      } else if (s === "disconnected" || s === "failed" || s === "closed") {
-        setConnectionIPVersion(null);
+      } else {
+        // Answerer: wait for DataChannel from the offerer
+        pc.ondatachannel = ({ channel }) => setupChannel(channel);
       }
-    };
-    pc.onconnectionstatechange    = () => setConnState(pc.connectionState);
-
-    // ── DataChannel setup ───────────────────────────────────────────────
-    const setupChannel = (channel) => {
-      channelRef.current = channel;
-      channel.binaryType = "arraybuffer";
-
-      channel.onopen  = () => onChannelRef.current?.(channel);
-      channel.onclose = () => { channelRef.current = null; };
-    };
-
-    if (role === "offerer") {
-      // Offerer: create DataChannel, then send SDP offer
-      const channel = pc.createDataChannel("fileTransfer", { ordered: true });
-      setupChannel(channel);
-
-      pc.createOffer().then((offer) => {
-        pc.setLocalDescription(offer);
-        sendSignalRef.current?.({ type: "offer", payload: offer });
-      });
-    } else {
-      // Answerer: wait for DataChannel from the offerer
-      pc.ondatachannel = ({ channel }) => setupChannel(channel);
-    }
+    })(); // end async IIFE
 
     // Re-run if role changes (e.g. surviving peer promoted to offerer)
-    return cleanup;
+    return () => {
+      cancelled = true;
+      cleanup();
+    };
   }, [role, sendSignal, cleanup]);
 
   /**

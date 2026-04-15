@@ -8,12 +8,17 @@ import (
 	"os"
 	"path"
 	"strings"
+
+	"github.com/joho/godotenv"
 )
 
 //go:embed all:dist
 var distFS embed.FS
 
 func main() {
+	// Load .env file for local development - ignore error in production
+	_ = godotenv.Load()
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -24,6 +29,7 @@ func main() {
 
 	// API routes
 	mux.HandleFunc("/api/myip", myIPHandler)
+	mux.HandleFunc("/api/turn-credentials", turnCredentialsHandler)
 	mux.HandleFunc("/ws", wsHandler(hub))
 
 	// Serve React SPA from embedded dist/

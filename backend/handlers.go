@@ -1,11 +1,17 @@
 package main
 
 import (
+	"crypto/hmac"
+	"crypto/sha1"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -87,4 +93,52 @@ func wsHandler(hub *Hub) http.HandlerFunc {
 		go client.WritePump()
 		go client.ReadPump()
 	}
+}
+
+// turnCredentialsHandler returns ICE server entries with TURN credentials.
+//
+// Path A (self-hosted coturn with use-auth-secret):
+//   Set env TURN_URL and TURN_SECRET. Credentials are generated via
+//   HMAC-SHA1 and are valid for 1 hour (coturn REST API mechanism).
+//
+// Path B (Open Relay Project / static credentials):
+//   Set env TURN_URL, TURN_USERNAME, and TURN_CREDENTIAL.
+//
+// If TURN_URL is unset the response contains an empty servers array,
+// so the frontend gracefully falls back to STUN-only mode.
+func turnCredentialsHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	turnURL := os.Getenv("TURN_URL")
+	if turnURL == "" {
+		// TURN not configured — STUN-only fallback
+		json.NewEncoder(w).Encode(map[string]any{"servers": []any{}})
+		return
+	}
+
+	var username, password string
+
+	if secret := os.Getenv("TURN_SECRET"); secret != "" {
+		// Path A: HMAC-SHA1 time-limited credentials (coturn use-auth-secret)
+		expiry := time.Now().Unix() + 3600 // 1-hour validity window
+		username = fmt.Sprintf("%d:user", expiry)
+		mac := hmac.New(sha1.New, []byte(secret))
+		mac.Write([]byte(username))
+		password = base64.StdEncoding.EncodeToString(mac.Sum(nil))
+	} else {
+		// Path B: static credentials from environment (e.g. Open Relay Project)
+		username = os.Getenv("TURN_USERNAME")
+		password = os.Getenv("TURN_CREDENTIAL")
+	}
+
+	// Provide both UDP and TCP TURN entries for maximum NAT traversal
+	tcpURL := turnURL + "?transport=tcp"
+
+	json.NewEncoder(w).Encode(map[string]any{
+		"servers": []any{
+			map[string]any{"urls": turnURL, "username": username, "credential": password},
+			map[string]any{"urls": tcpURL, "username": username, "credential": password},
+		},
+	})
 }
