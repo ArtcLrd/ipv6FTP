@@ -131,7 +131,7 @@ export default function App() {
   const isConnected = iceState === "connected" || iceState === "completed";
 
   // ── Voice ──────────────────────────────────────────────────────────────
-  const { callState, isMuted, localVolume, remoteVolume, startCall, endCall, toggleMute } =
+  const { callState, isMuted, errorMessage, localVolume, remoteVolume, startCall, endCall, toggleMute } =
     useVoice(pcRef, activeRole, sendSignal, isConnected);
 
   // ── File Transfer ──────────────────────────────────────────────────────
