@@ -97,18 +97,70 @@ func wsHandler(hub *Hub) http.HandlerFunc {
 
 // turnCredentialsHandler returns ICE server entries with TURN credentials.
 //
-// Path A (self-hosted coturn with use-auth-secret):
-//   Set env TURN_URL and TURN_SECRET. Credentials are generated via
-//   HMAC-SHA1 and are valid for 1 hour (coturn REST API mechanism).
+// Path A: Metered.ca REST API (Most Secure)
+//   Set METERED_API_KEY and optionally METERED_APP_NAME.
 //
-// Path B (Open Relay Project / static credentials):
+// Path B: self-hosted coturn with use-auth-secret:
+//   Set env TURN_URL and TURN_SECRET.
+//
+// Path C: Static credentials from environment (fallback):
 //   Set env TURN_URL, TURN_USERNAME, and TURN_CREDENTIAL.
-//
-// If TURN_URL is unset the response contains an empty servers array,
-// so the frontend gracefully falls back to STUN-only mode.
 func turnCredentialsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	// --- Path A: Metered.ca REST API ---
+	apiKey := os.Getenv("METERED_API_KEY")
+	if apiKey != "" {
+		appName := os.Getenv("METERED_APP_NAME")
+		if appName == "" {
+			appName = "openrelay" 
+		}
+
+		domain := os.Getenv("METERED_DOMAIN")
+		if domain == "" {
+			domain = fmt.Sprintf("%s.metered.live", appName)
+		}
+
+		// Try GET /credentials?apiKey=...
+		url := fmt.Sprintf("https://%s/api/v1/turn/credentials?apiKey=%s", domain, apiKey)
+		
+		client := &http.Client{Timeout: 10 * time.Second}
+		resp, err := client.Get(url)
+		
+		// If fails, try POST /credential?secretKey=...
+		if err != nil || resp.StatusCode != http.StatusOK {
+			url = fmt.Sprintf("https://%s/api/v1/turn/credential?secretKey=%s", domain, apiKey)
+			resp, err = client.Post(url, "application/json", nil)
+		}
+
+		if err == nil && resp.StatusCode == http.StatusOK {
+			defer resp.Body.Close()
+			var result any
+			if err := json.NewDecoder(resp.Body).Decode(&result); err == nil {
+				switch v := result.(type) {
+				case []any:
+					json.NewEncoder(w).Encode(map[string]any{"servers": v})
+					return
+				case map[string]any:
+					if servers, ok := v["iceServers"]; ok {
+						json.NewEncoder(w).Encode(map[string]any{"servers": servers})
+						return
+					}
+					if _, ok := v["urls"]; ok {
+						json.NewEncoder(w).Encode(map[string]any{"servers": []any{v}})
+						return
+					}
+				}
+			}
+		}
+		
+		if err != nil {
+			log.Printf("Metered API call failed: %v", err)
+		} else if resp.StatusCode != http.StatusOK {
+			log.Printf("Metered API returned %d", resp.StatusCode)
+		}
+	}
 
 	turnURL := os.Getenv("TURN_URL")
 	if turnURL == "" {
@@ -120,14 +172,14 @@ func turnCredentialsHandler(w http.ResponseWriter, r *http.Request) {
 	var username, password string
 
 	if secret := os.Getenv("TURN_SECRET"); secret != "" {
-		// Path A: HMAC-SHA1 time-limited credentials (coturn use-auth-secret)
+		// Path B: HMAC-SHA1 time-limited credentials (coturn use-auth-secret)
 		expiry := time.Now().Unix() + 3600 // 1-hour validity window
 		username = fmt.Sprintf("%d:user", expiry)
 		mac := hmac.New(sha1.New, []byte(secret))
 		mac.Write([]byte(username))
 		password = base64.StdEncoding.EncodeToString(mac.Sum(nil))
 	} else {
-		// Path B: static credentials from environment (e.g. Open Relay Project)
+		// Path C: static credentials from environment
 		username = os.Getenv("TURN_USERNAME")
 		password = os.Getenv("TURN_CREDENTIAL")
 	}
