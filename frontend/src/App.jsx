@@ -3,11 +3,13 @@ import { useMyIP } from "./hooks/useMyIP";
 import { useSignaling } from "./hooks/useSignaling";
 import { useWebRTC } from "./hooks/useWebRTC";
 import { useFileTransfer } from "./hooks/useFileTransfer";
+import { useVoice } from "./hooks/useVoice";
 import { IPDisplay } from "./components/IPDisplay";
 import { RoomPanel } from "./components/RoomPanel";
 import { FileExplorer } from "./components/FileExplorer";
 import { UploadZone } from "./components/UploadZone";
 import { TransferProgress } from "./components/TransferProgress";
+import { VoicePanel } from "./components/VoicePanel";
 
 export default function App() {
   const { ip, isIPv6, loading: ipLoading, error: ipError } = useMyIP();
@@ -110,14 +112,27 @@ export default function App() {
     wasActiveRef.current = false; // reset: we're fully connected now
   }, []);
 
-  const { iceState, connState, connectionIPVersion, handleSignal } = useWebRTC(
+  // onTrack: forward remote audio tracks to the voice hook
+  const onTrackRef = useRef(null);
+  const handleTrack = useCallback((event) => {
+    onTrackRef.current?.(event);
+  }, []);
+
+  const { iceState, connState, connectionIPVersion, pcRef, handleSignal } = useWebRTC(
     activeRole,
     sendSignal,
-    onChannelOpen
+    onChannelOpen,
+    handleTrack,
   );
 
   // Keep handleSignal ref fresh (avoids stale closure in onSignalingMessage)
   handleSignalRef.current = handleSignal;
+
+  const isConnected = iceState === "connected" || iceState === "completed";
+
+  // ── Voice ──────────────────────────────────────────────────────────────
+  const { callState, isMuted, localVolume, remoteVolume, startCall, endCall, toggleMute } =
+    useVoice(pcRef, activeRole, sendSignal, isConnected);
 
   // ── File Transfer ──────────────────────────────────────────────────────
   const {
@@ -139,8 +154,6 @@ export default function App() {
     setRoomID(id);
     setRole("answerer"); // Joiner waits as answerer until offer arrives
   }, []);
-
-  const isConnected = iceState === "connected" || iceState === "completed";
 
   return (
     <div className="app">
@@ -177,6 +190,21 @@ export default function App() {
               signalingError={signalingError}
               onCreateRoom={handleCreateRoom}
               onJoinRoom={handleJoinRoom}
+            />
+          </section>
+
+          {/* Voice Call Panel */}
+          <section className="card">
+            <VoicePanel
+              callState={callState}
+              isMuted={isMuted}
+              errorMessage={errorMessage}
+              localVolume={localVolume}
+              remoteVolume={remoteVolume}
+              isConnected={isConnected}
+              onStart={startCall}
+              onEnd={endCall}
+              onToggleMute={toggleMute}
             />
           </section>
 
