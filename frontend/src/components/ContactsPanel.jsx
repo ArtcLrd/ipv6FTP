@@ -56,9 +56,11 @@ export function ContactsPanel({ onJoinRoom, isConnected, currentRoomID, onDiscon
       const res = await apiPost("/api/rooms/create");
       if (res.ok) {
         const { room_id } = await res.json();
+        // Join the room first — handleJoinRoom calls disconnect() internally which
+        // resets pendingCallStartRef. We set it AFTER so it survives the reset.
+        onJoinRoom(room_id, "offerer");
         // Signal AppPage to call startCall() once ICE connects
         if (pendingCallStartRef) pendingCallStartRef.current = true;
-        onJoinRoom(room_id, "offerer");
         await apiPost("/api/rooms/invite", {
           contact_id: contact.id,
           room_id,
