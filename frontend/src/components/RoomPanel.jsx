@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 
 function generateRoomID() {
   // Generate a readable random room ID like "sapphire-7f3a2b"
@@ -33,10 +33,16 @@ export function RoomPanel({
   signalingError,
   onCreateRoom,
   onJoinRoom,
+  onDisconnect,
 }) {
   const [inputRoom, setInputRoom] = useState("");
   const [copied, setCopied] = useState(false);
   const [mode, setMode] = useState(null); // "create" | "join"
+
+  // BUG 6 FIX: reset mode when room is cleared so label is correct next time
+  useEffect(() => {
+    if (!roomID) setMode(null);
+  }, [roomID]);
 
   const handleCreate = useCallback(() => {
     const id = generateRoomID();
@@ -132,6 +138,15 @@ export function RoomPanel({
               <span className="spinner" /> Waiting for peer to join…
             </p>
           )}
+          {!isConnected && onDisconnect && (
+            <button
+              className="btn btn--secondary btn--sm"
+              style={{ marginTop: "12px", width: "100%" }}
+              onClick={onDisconnect}
+            >
+              ✕ Cancel Connection
+            </button>
+          )}
         </div>
       )}
 
@@ -140,6 +155,15 @@ export function RoomPanel({
           <div className="room-panel__ice-detail">
             ICE state: <code>{iceState}</code>
           </div>
+          {onDisconnect && (
+            <button
+              className="btn btn--danger-ghost btn--sm"
+              style={{ marginTop: "10px", width: "100%" }}
+              onClick={onDisconnect}
+            >
+              Disconnect
+            </button>
+          )}
         </div>
       )}
     </div>

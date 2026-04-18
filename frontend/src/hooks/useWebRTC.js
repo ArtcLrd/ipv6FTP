@@ -102,10 +102,16 @@ export function useWebRTC(role, sendSignal, onChannel, onTrack) {
         const channel = pc.createDataChannel("fileTransfer", { ordered: true });
         setupChannel(channel);
 
-        pc.createOffer().then((offer) => {
-          pc.setLocalDescription(offer);
-          sendSignalRef.current?.({ type: "offer", payload: offer });
-        });
+        pc.createOffer()
+          .then(async (offer) => {
+            try {
+              await pc.setLocalDescription(offer);
+              sendSignalRef.current?.({ type: "offer", payload: offer });
+            } catch (err) {
+              console.error("[webrtc] setLocalDescription failed:", err);
+            }
+          })
+          .catch((err) => console.error("[webrtc] createOffer failed:", err));
       } else {
         // Answerer: wait for DataChannel from the offerer
         pc.ondatachannel = ({ channel }) => setupChannel(channel);

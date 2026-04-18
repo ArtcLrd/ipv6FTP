@@ -1,7 +1,8 @@
+import { useState } from "react";
 import { useContacts } from "../hooks/useContacts";
 import { apiPost } from "../lib/api";
 
-export function ContactsPanel({ onJoinRoom, startCall }) {
+export function ContactsPanel({ onJoinRoom, isConnected, currentRoomID, onDisconnect }) {
   const { 
     contacts, 
     loading, 
@@ -12,14 +13,19 @@ export function ContactsPanel({ onJoinRoom, startCall }) {
     removeContact 
   } = useContacts();
 
+  // Track which contact we're currently trying to connect/call to
+  const [pendingContactId, setPendingContactId] = useState(null);
+
   const handleConnect = async (contact) => {
+    if (pendingContactId) return; // already in progress
+    setPendingContactId(contact.id);
     try {
       const res = await apiPost("/api/rooms/create");
       if (res.ok) {
         const { room_id } = await res.json();
-        // 1. Join locally as offerer
+        // onJoinRoom handles disconnect internally — no need to call onDisconnect here
         onJoinRoom(room_id, "offerer");
-        // 2. Invite peer via SSE
+        // Invite peer via SSE
         await apiPost("/api/rooms/invite", {
           contact_id: contact.id,
           room_id,
@@ -28,28 +34,35 @@ export function ContactsPanel({ onJoinRoom, startCall }) {
       }
     } catch (err) {
       console.error("Connect error", err);
+    } finally {
+      // Keep pendingContactId until connection is fully established or fails.
+      // We clear it after a delay since connection state is managed by AppPage.
+      setTimeout(() => setPendingContactId(null), 500);
     }
   };
 
   const handleCall = async (contact) => {
+    if (pendingContactId) return;
+    setPendingContactId(contact.id);
     try {
       const res = await apiPost("/api/rooms/create");
       if (res.ok) {
         const { room_id } = await res.json();
-        // 1. Join locally as offerer
+        // onJoinRoom handles disconnect internally
         onJoinRoom(room_id, "offerer");
-        // 2. Invite peer via SSE as a call
+        // Invite peer via SSE as a call
         await apiPost("/api/rooms/invite", {
           contact_id: contact.id,
           room_id,
           type: "call"
         });
-        // 3. Start voice local transition
-        // (AppPage will handle startCall once ice/signals are ready or we can trigger it)
-        setTimeout(() => startCall(), 500);
+        // NOTE: startCall() is now triggered in AppPage once ICE is actually connected.
+        // Do NOT call startCall() here directly — it won't work before ICE is up.
       }
     } catch (err) {
       console.error("Call error", err);
+    } finally {
+      setTimeout(() => setPendingContactId(null), 500);
     }
   };
 
@@ -97,6 +110,7 @@ export function ContactsPanel({ onJoinRoom, startCall }) {
                 onConnect={() => handleConnect(contact)}
                 onCall={() => handleCall(contact)}
                 onRemove={() => removeContact(contact.id)}
+                isPending={pendingContactId === contact.id}
               />
             ))}
           </div>
@@ -120,7 +134,7 @@ export function ContactsPanel({ onJoinRoom, startCall }) {
   );
 }
 
-function ContactRow({ contact, onConnect, onCall, onRemove, disabled }) {
+function ContactRow({ contact, onConnect, onCall, onRemove, disabled, isPending }) {
   return (
     <div className={`contact-row ${disabled ? "contact-row--disabled" : ""}`}>
       <div className="contact-row__info">
@@ -130,8 +144,22 @@ function ContactRow({ contact, onConnect, onCall, onRemove, disabled }) {
       <div className="contact-row__actions">
         {!disabled && (
           <>
-            <button className="btn btn--ghost btn--sm" title="Connect" onClick={onConnect}>⚡</button>
-            <button className="btn btn--ghost btn--sm" title="Call" onClick={onCall}>📞</button>
+            <button 
+              className="btn btn--ghost btn--sm" 
+              title={isPending ? "Connecting..." : "Connect"} 
+              onClick={onConnect}
+              disabled={isPending}
+            >
+              {isPending ? "⏳" : "⚡"}
+            </button>
+            <button 
+              className="btn btn--ghost btn--sm" 
+              title={isPending ? "Connecting..." : "Call"} 
+              onClick={onCall}
+              disabled={isPending}
+            >
+              {isPending ? "⏳" : "📞"}
+            </button>
           </>
         )}
         <button className="btn btn--danger-ghost btn--sm" title="Remove" onClick={onRemove}>✕</button>
