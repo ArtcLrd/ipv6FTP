@@ -4,12 +4,15 @@ import { useMemo } from "react";
  * VoicePanel — UI card for P2P voice calling.
  *
  * Props:
- *   callState   — "idle" | "requesting" | "active" | "error"
+ *   callState   — "idle" | "requesting" | "calling" | "incoming" | "active" | "error"
  *   isMuted     — boolean
+ *   errorMessage— string
  *   localVolume — 0-1 (microphone level)
  *   remoteVolume— 0-1 (remote peer level)
  *   isConnected — boolean (peer-to-peer link established)
  *   onStart     — fn
+ *   onAccept    — fn
+ *   onReject    — fn
  *   onEnd       — fn
  *   onToggleMute— fn
  */
@@ -21,11 +24,15 @@ export function VoicePanel({
   remoteVolume,
   isConnected,
   onStart,
+  onAccept,
+  onReject,
   onEnd,
   onToggleMute,
 }) {
   const isActive      = callState === "active";
   const isRequesting  = callState === "requesting";
+  const isCalling     = callState === "calling";
+  const isIncoming    = callState === "incoming";
   const isError       = callState === "error";
 
   // Build 8 volume bar heights for each meter
@@ -40,6 +47,25 @@ export function VoicePanel({
 
   return (
     <div className="voice-panel">
+      {/* ── Incoming Call Overlay ── */}
+      {isIncoming && (
+        <div className="voice-panel__overlay">
+          <div className="voice-panel__incoming-dialog">
+            <div className="voice-panel__ring-animation">📞</div>
+            <h3>Incoming Call</h3>
+            <p>Peer wants to start a voice call.</p>
+            <div className="voice-panel__incoming-actions">
+              <button className="btn btn--primary" onClick={onAccept}>
+                Answer
+              </button>
+              <button className="btn btn--end-call" onClick={onReject}>
+                Decline
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="voice-panel__header">
         <span className={`voice-panel__icon ${isActive ? "voice-panel__icon--active" : ""}`}>
           🎙️
@@ -85,29 +111,33 @@ export function VoicePanel({
       )}
 
       <div className="voice-panel__controls">
-        {/* Start / End Call button */}
-        {!isActive ? (
+        {/* State-based Buttons */}
+        {(callState === "idle" || isError) ? (
           <button
             id="voice-start-btn"
             className="btn btn--primary voice-btn"
             onClick={onStart}
-            disabled={!isConnected || isRequesting}
+            disabled={!isConnected}
           >
-            {isRequesting ? (
-              <><span className="spinner" /> Connecting…</>
-            ) : (
-              <> 📞 Start Call</>
-            )}
+             📞 Start Call
           </button>
-        ) : (
+        ) : isRequesting ? (
+          <button className="btn btn--primary voice-btn" disabled>
+            <span className="spinner" /> Mic Access...
+          </button>
+        ) : isCalling ? (
+          <button className="btn btn--end-call voice-btn" onClick={() => onEnd(true)}>
+            <span className="spinner" /> Calling... (Cancel)
+          </button>
+        ) : isActive ? (
           <button
             id="voice-end-btn"
             className="btn btn--end-call voice-btn"
-            onClick={onEnd}
+            onClick={() => onEnd(true)}
           >
             📵 End Call
           </button>
-        )}
+        ) : null}
 
         {/* Mute toggle — only while active */}
         {isActive && (

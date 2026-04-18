@@ -26,6 +26,7 @@ export default function App() {
 
   // ── Signaling ──────────────────────────────────────────────────────────
   const handleSignalRef = useRef(null);
+  const handleCallSignalRef = useRef(null);
 
   const onSignalingMessage = useCallback((msg) => {
     // Decode position from payload if present
@@ -93,6 +94,14 @@ export default function App() {
         handleSignalRef.current?.(msg);
         break;
 
+      // ── Call signaling passthrough ───────────────────────────────────
+      case "call-invite":
+      case "call-accepted":
+      case "call-rejected":
+      case "call-ended":
+        handleCallSignalRef.current?.(msg);
+        break;
+
       default:
         break;
     }
@@ -131,8 +140,12 @@ export default function App() {
   const isConnected = iceState === "connected" || iceState === "completed";
 
   // ── Voice ──────────────────────────────────────────────────────────────
-  const { callState, isMuted, errorMessage, localVolume, remoteVolume, startCall, endCall, toggleMute } =
-    useVoice(pcRef, activeRole, sendSignal, isConnected);
+  const { 
+    callState, isMuted, errorMessage, localVolume, remoteVolume, 
+    startCall, acceptCall, rejectCall, endCall, toggleMute, handleCallSignal 
+  } = useVoice(pcRef, activeRole, sendSignal, isConnected);
+
+  handleCallSignalRef.current = handleCallSignal;
 
   // ── File Transfer ──────────────────────────────────────────────────────
   const {
@@ -203,6 +216,8 @@ export default function App() {
               remoteVolume={remoteVolume}
               isConnected={isConnected}
               onStart={startCall}
+              onAccept={acceptCall}
+              onReject={rejectCall}
               onEnd={endCall}
               onToggleMute={toggleMute}
             />

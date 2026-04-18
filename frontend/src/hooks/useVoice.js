@@ -1,10 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
 /**
- * useVoice — manages WebRTC audio track for P2P voice calling.
- *
- * Works alongside useWebRTC: adds a microphone audio track to the
- * existing RTCPeerConnection and plays the remote peer's audio stream.
+ * useVoice — manages WebRTC audio track for P2P voice calling with invite/accept flow.
  *
  * @param {React.MutableRefObject} pcRef  — ref to the active RTCPeerConnection
  * @param {string|null}            role   — "offerer" | "answerer" | null
@@ -12,7 +9,8 @@ import { useState, useEffect, useRef, useCallback } from "react";
  * @param {boolean}                isConnected — true when ICE is connected/completed
  */
 export function useVoice(pcRef, role, sendSignal, isConnected) {
-  const [callState, setCallState] = useState("idle"); // idle | requesting | active | error
+  // idle | requesting | calling | incoming | active | error
+  const [callState, setCallState] = useState("idle"); 
   const [isMuted, setIsMuted] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [localVolume, setLocalVolume] = useState(0);
@@ -53,7 +51,6 @@ export function useVoice(pcRef, role, sendSignal, isConnected) {
         if (remoteAudioRef.current) {
           remoteAudioRef.current.srcObject = stream;
           remoteAudioRef.current.play().catch(() => {});
-          // Set up remote analyser for volume meter
           try {
             const ctx = new AudioContext();
             const src = ctx.createMediaStreamSource(stream);
@@ -63,6 +60,7 @@ export function useVoice(pcRef, role, sendSignal, isConnected) {
             remoteAnalyser.current = analyser;
           } catch (_) {}
         }
+        // State is already set to active via _activateCall, but it's safe to set here in case.
         setCallState("active");
       }
     };
@@ -70,7 +68,6 @@ export function useVoice(pcRef, role, sendSignal, isConnected) {
     return () => {
       pc.ontrack = prevOnTrack ?? null;
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pcRef.current]);
 
   // ── Volume meter animation loop ───────────────────────────────────────────
@@ -93,24 +90,15 @@ export function useVoice(pcRef, role, sendSignal, isConnected) {
     return () => cancelAnimationFrame(animFrameRef.current);
   }, []);
 
-  // ── Start Call ────────────────────────────────────────────────────────────
-  const startCall = useCallback(async () => {
-    const pc = pcRef.current;
-    if (!pc || !isConnected) return;
-
-    setCallState("requesting");
-    setErrorMessage("");
-
-    // Check for secure context — getUserMedia requires HTTPS (except localhost)
+  // ── Helper: Request Microphone ─────────────────────────────────────────────
+  const _requestMicrophone = useCallback(async () => {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setErrorMessage(
         "Voice calls require a secure connection (HTTPS). " +
         "Access this app via HTTPS or from localhost."
       );
-      setCallState("error");
-      return;
+      return false;
     }
-
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 48000 },
@@ -118,17 +106,6 @@ export function useVoice(pcRef, role, sendSignal, isConnected) {
       });
       localStreamRef.current = stream;
 
-      // Add each audio track to the peer connection
-      stream.getAudioTracks().forEach((track) => pc.addTrack(track, stream));
-
-      // Renegotiate — offerer creates a new offer, answerer waits
-      if (role === "offerer") {
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        sendSignalRef.current?.({ type: "offer", payload: offer });
-      }
-
-      // Set up local analyser for speaking level meter
       try {
         const ctx = new AudioContext();
         const src = ctx.createMediaStreamSource(stream);
@@ -138,14 +115,13 @@ export function useVoice(pcRef, role, sendSignal, isConnected) {
         localAnalyser.current = analyser;
       } catch (_) {}
 
-      setCallState("active");
+      return true;
     } catch (err) {
       console.error("[voice] getUserMedia error:", err.name, err.message);
       let msg = "Microphone access denied. Please allow mic permissions and try again.";
       if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
         msg = "No microphone found. Please connect a microphone and try again.";
       } else if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
-        // On HTTP (non-localhost) mobile browsers this is thrown even if OS granted permission
         const isInsecure = location.protocol !== "https:" && location.hostname !== "localhost";
         msg = isInsecure
           ? "Voice calls require HTTPS. Open the app via a secure HTTPS link on mobile."
@@ -154,26 +130,142 @@ export function useVoice(pcRef, role, sendSignal, isConnected) {
         msg = "Microphone is in use by another app. Please close it and try again.";
       }
       setErrorMessage(msg);
-      setCallState("error");
+      return false;
     }
-  }, [pcRef, isConnected, role]);
+  }, []);
 
-  // ── End Call ──────────────────────────────────────────────────────────────
-  const endCall = useCallback(() => {
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach((t) => t.stop());
-      localStreamRef.current = null;
+  // ── Helper: Activate Call & Renegotiate ────────────────────────────────────
+  const _activateCall = useCallback(async () => {
+    const pc = pcRef.current;
+    if (!pc || !localStreamRef.current) return;
+
+    // Add each audio track to the peer connection
+    localStreamRef.current.getAudioTracks().forEach((track) => {
+      const senders = pc.getSenders();
+      if (!senders.find(s => s.track === track)) {
+        pc.addTrack(track, localStreamRef.current);
+      }
+    });
+
+    // Renegotiate — offerer creates a new offer, answerer waits to receive it
+    if (role === "offerer") {
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        sendSignalRef.current?.({ type: "offer", payload: offer });
+      } catch (err) {
+        console.error("[voice] renegotiation offer error:", err);
+      }
     }
+
+    setCallState("active");
+  }, [role, pcRef]);
+
+  // ── Actions: Start, Accept, Reject, End ──────────────────────────────────
+  const startCall = useCallback(async () => {
+    if (!pcRef.current || !isConnected) return;
+    setErrorMessage("");
+    setCallState("requesting");
+    
+    const success = await _requestMicrophone();
+    if (!success) {
+      setCallState("error");
+      return;
+    }
+    
+    sendSignalRef.current?.({ type: "call-invite" });
+    setCallState("calling");
+  }, [pcRef, isConnected, _requestMicrophone]);
+
+  const acceptCall = useCallback(async () => {
+    // Only used to answer an incoming call
+    setErrorMessage("");
+    setCallState("requesting");
+
+    const success = await _requestMicrophone();
+    if (!success) {
+      setCallState("error");
+      sendSignalRef.current?.({ type: "call-rejected" });
+      return;
+    }
+
+    sendSignalRef.current?.({ type: "call-accepted" });
+    await _activateCall();
+  }, [_requestMicrophone, _activateCall]);
+
+  const endCall = useCallback((shouldSendSignal = true) => {
+    if (shouldSendSignal) {
+      sendSignalRef.current?.({ type: "call-ended" });
+    }
+    
+    if (localStreamRef.current) {
+      const pc = pcRef.current;
+      localStreamRef.current.getTracks().forEach((t) => {
+        t.stop();
+        if (pc) {
+          const sender = pc.getSenders().find(s => s.track === t);
+          if (sender) pc.removeTrack(sender);
+        }
+      });
+      localStreamRef.current = null;
+      
+      // Offerer renegotiates to cleanly close remote track natively
+      if (pc && role === "offerer" && (callState === "active" || callState === "calling")) {
+        pc.createOffer()
+          .then(offer => pc.setLocalDescription(offer).then(() => {
+            sendSignalRef.current?.({ type: "offer", payload: offer });
+          }))
+          .catch(() => {});
+      }
+    }
+
     if (remoteAudioRef.current) {
       remoteAudioRef.current.srcObject = null;
     }
+    
     localAnalyser.current = null;
     remoteAnalyser.current = null;
     setLocalVolume(0);
     setRemoteVolume(0);
     setCallState("idle");
     setIsMuted(false);
-  }, []);
+  }, [role, callState, pcRef]);
+
+  const rejectCall = useCallback(() => {
+    sendSignalRef.current?.({ type: "call-rejected" });
+    endCall(false);
+  }, [endCall]);
+
+  // ── Handle incoming Call Signals from App.jsx ─────────────────────────────
+  const handleCallSignal = useCallback((msg) => {
+    switch (msg.type) {
+      case "call-invite":
+        if (callState === "idle") {
+          setCallState("incoming");
+        } else {
+          // If we're already calling, we might have a race condition!
+          // Auto-accept if both initiated a call just to resolve glare cleanly.
+          if (callState === "calling") {
+            _activateCall();
+          } else {
+            sendSignalRef.current?.({ type: "call-rejected" });
+          }
+        }
+        break;
+      case "call-accepted":
+        _activateCall();
+        break;
+      case "call-rejected":
+        setErrorMessage("Peer declined the call.");
+        endCall(false);
+        break;
+      case "call-ended":
+        endCall(false);
+        break;
+      default:
+        break;
+    }
+  }, [callState, _activateCall, endCall]);
 
   // ── Mute toggle ───────────────────────────────────────────────────────────
   const toggleMute = useCallback(() => {
@@ -185,10 +277,15 @@ export function useVoice(pcRef, role, sendSignal, isConnected) {
 
   // ── Cleanup on unmount / disconnect ──────────────────────────────────────
   useEffect(() => {
-    if (!isConnected && callState === "active") {
-      endCall();
+    if (!isConnected && callState !== "idle") {
+      endCall(false);
+      setErrorMessage("Call ended unexpectedly because the peer connection was lost.");
+      setCallState("error");
     }
   }, [isConnected, callState, endCall]);
 
-  return { callState, isMuted, errorMessage, localVolume, remoteVolume, startCall, endCall, toggleMute };
+  return { 
+    callState, isMuted, errorMessage, localVolume, remoteVolume, 
+    startCall, acceptCall, rejectCall, endCall, toggleMute, handleCallSignal
+  };
 }

@@ -71,7 +71,7 @@ func (c *Client) ReadPump() {
 
 		// Only relay valid signaling message types
 		switch msg.Type {
-		case "offer", "answer", "ice-candidate":
+		case "offer", "answer", "ice-candidate", "call-invite", "call-accepted", "call-rejected", "call-ended":
 			c.hub.Relay(c.roomID, c, msg)
 		default:
 			log.Printf("[room:%s] unknown message type: %s", c.roomID, msg.Type)
