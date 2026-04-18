@@ -34,8 +34,9 @@ export function AppPage() {
 
   // Refs for timeouts & call-accept
   const iceTimeoutRef     = useRef(null);
-  const iceGraceTimerRef  = useRef(null); // BUG 5 fix: separate grace timer for "disconnected"
-  const pendingCallAcceptRef = useRef(false); // BUG 1 fix: declared before any use
+  const iceGraceTimerRef  = useRef(null);
+  const pendingCallAcceptRef = useRef(false); // answerer: trigger acceptCall when ICE connects
+  const pendingCallStartRef  = useRef(false); // caller:   trigger startCall  when ICE connects
 
   const wasActiveRef       = useRef(false);
   const handleSignalRef    = useRef(null);
@@ -133,6 +134,9 @@ export function AppPage() {
     // Clear all timers
     if (iceTimeoutRef.current)    { clearTimeout(iceTimeoutRef.current);    iceTimeoutRef.current = null; }
     if (iceGraceTimerRef.current) { clearTimeout(iceGraceTimerRef.current); iceGraceTimerRef.current = null; }
+    // Clear pending call flags so they don't fire on the next connection
+    pendingCallStartRef.current  = false;
+    pendingCallAcceptRef.current = false;
     cleanupWebRTC();
     setRoomID(null);
     setRole(null);
@@ -226,18 +230,27 @@ export function AppPage() {
     if (!invite) return;
     handleJoinRoom(invite.room_id, "answerer");
     if (invite.type === "call") {
+      // Answerer: trigger acceptCall() once ICE connects
       pendingCallAcceptRef.current = true;
     }
     setInvite(null);
   };
 
-  // Once ICE connects after a call-type invite, trigger acceptCall
+  // Once ICE connects after a call-type invite, trigger acceptCall (answerer)
   useEffect(() => {
     if (pendingCallAcceptRef.current && isConnected) {
       pendingCallAcceptRef.current = false;
       acceptCall();
     }
   }, [isConnected, acceptCall]);
+
+  // Once ICE connects after initiating a call (offerer), trigger startCall
+  useEffect(() => {
+    if (pendingCallStartRef.current && isConnected) {
+      pendingCallStartRef.current = false;
+      startCall();
+    }
+  }, [isConnected, startCall]);
 
   const handleDeclineInvite = () => setInvite(null);
 
@@ -310,6 +323,7 @@ export function AppPage() {
                 isConnected={isConnected}
                 currentRoomID={roomID}
                 onDisconnect={disconnect}
+                pendingCallStartRef={pendingCallStartRef}
               />
             </section>
           )}

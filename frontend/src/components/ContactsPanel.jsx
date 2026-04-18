@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useContacts } from "../hooks/useContacts";
 import { apiPost } from "../lib/api";
 
-export function ContactsPanel({ onJoinRoom, isConnected, currentRoomID, onDisconnect }) {
+export function ContactsPanel({ onJoinRoom, isConnected, currentRoomID, onDisconnect, pendingCallStartRef }) {
   const { 
     contacts, 
     loading, 
@@ -56,6 +56,8 @@ export function ContactsPanel({ onJoinRoom, isConnected, currentRoomID, onDiscon
       const res = await apiPost("/api/rooms/create");
       if (res.ok) {
         const { room_id } = await res.json();
+        // Signal AppPage to call startCall() once ICE connects
+        if (pendingCallStartRef) pendingCallStartRef.current = true;
         onJoinRoom(room_id, "offerer");
         await apiPost("/api/rooms/invite", {
           contact_id: contact.id,
