@@ -178,7 +178,7 @@ export function useVoice(pcRef, role, sendSignal, isConnected) {
   }, [pcRef, isConnected, _requestMicrophone]);
 
   const acceptCall = useCallback(async () => {
-    // Only used to answer an incoming call
+    // Only used to answer an incoming in-app call dialog
     setErrorMessage("");
     setCallState("requesting");
 
@@ -192,6 +192,24 @@ export function useVoice(pcRef, role, sendSignal, isConnected) {
     sendSignalRef.current?.({ type: "call-accepted" });
     await _activateCall();
   }, [_requestMicrophone, _activateCall]);
+
+  /**
+   * directConnect — used by SSE-initiated call flows (both caller & callee).
+   * Skips the WS call-invite/call-accepted handshake entirely; both sides
+   * just request mic and activate. Avoids the race where the late WS call-invite
+   * arrives after the peer is already "active" causing a spurious rejection.
+   */
+  const directConnect = useCallback(async () => {
+    if (callState !== "idle") return; // already in a call
+    setErrorMessage("");
+    setCallState("requesting");
+    const success = await _requestMicrophone();
+    if (!success) {
+      setCallState("error");
+      return;
+    }
+    await _activateCall();
+  }, [callState, _requestMicrophone, _activateCall]);
 
   const endCall = useCallback((shouldSendSignal = true) => {
     if (shouldSendSignal) {
@@ -242,22 +260,26 @@ export function useVoice(pcRef, role, sendSignal, isConnected) {
       case "call-invite":
         if (callState === "idle") {
           setCallState("incoming");
+        } else if (callState === "active" || callState === "requesting") {
+          // Already active (SSE direct-connect flow) — ignore the WS handshake signal
+          // Do NOT reject — that would show a spurious "Peer declined" error.
+        } else if (callState === "calling") {
+          // Glare: both sides initiated simultaneously — offerer wins, activate directly
+          _activateCall();
         } else {
-          // If we're already calling, we might have a race condition!
-          // Auto-accept if both initiated a call just to resolve glare cleanly.
-          if (callState === "calling") {
-            _activateCall();
-          } else {
-            sendSignalRef.current?.({ type: "call-rejected" });
-          }
+          // "incoming" or "error" — reject
+          sendSignalRef.current?.({ type: "call-rejected" });
         }
         break;
       case "call-accepted":
         _activateCall();
         break;
       case "call-rejected":
-        setErrorMessage("Peer declined the call.");
-        endCall(false);
+        // Ignore rejection if we're already in an active call (SSE flow race)
+        if (callState !== "active") {
+          setErrorMessage("Peer declined the call.");
+          endCall(false);
+        }
         break;
       case "call-ended":
         endCall(false);
@@ -275,17 +297,25 @@ export function useVoice(pcRef, role, sendSignal, isConnected) {
     setIsMuted(!isMuted);
   }, [isMuted]);
 
-  // ── Cleanup on unmount / disconnect ──────────────────────────────────────
+  // ── Disconnect watcher — grace delay so renegotiation doesn't kill the call ─
+  // ICE briefly goes to "checking" during audio track renegotiation, making
+  // isConnected false. Without a delay this immediately kills an active call.
   useEffect(() => {
     if (!isConnected && callState !== "idle") {
-      endCall(false);
-      setErrorMessage("Call ended unexpectedly because the peer connection was lost.");
-      setCallState("error");
+      const t = setTimeout(() => {
+        // Re-read through the closure ref to get the latest value
+        if (!isConnected) {
+          endCall(false);
+          setErrorMessage("Call ended unexpectedly because the peer connection was lost.");
+          setCallState("error");
+        }
+      }, 3000); // 3s grace — renegotiation completes in <1s in normal conditions
+      return () => clearTimeout(t);
     }
   }, [isConnected, callState, endCall]);
 
   return { 
     callState, isMuted, errorMessage, localVolume, remoteVolume, 
-    startCall, acceptCall, rejectCall, endCall, toggleMute, handleCallSignal
+    startCall, acceptCall, rejectCall, endCall, toggleMute, handleCallSignal, directConnect
   };
 }

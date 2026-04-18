@@ -120,7 +120,7 @@ export function AppPage() {
 
   const {
     callState, isMuted, errorMessage, localVolume, remoteVolume,
-    startCall, acceptCall, rejectCall, endCall, toggleMute, handleCallSignal
+    startCall, acceptCall, rejectCall, endCall, toggleMute, handleCallSignal, directConnect
   } = useVoice(pcRef, activeRole, sendSignal, isConnected);
 
   handleCallSignalRef.current = handleCallSignal;
@@ -236,21 +236,21 @@ export function AppPage() {
     setInvite(null);
   };
 
-  // Once ICE connects after a call-type invite, trigger acceptCall (answerer)
+  // Once ICE connects after a call-type invite (answerer side), directly activate
   useEffect(() => {
     if (pendingCallAcceptRef.current && isConnected) {
       pendingCallAcceptRef.current = false;
-      acceptCall();
+      directConnect(); // skips WS handshake — both sides activate independently
     }
-  }, [isConnected, acceptCall]);
+  }, [isConnected, directConnect]);
 
-  // Once ICE connects after initiating a call (offerer), trigger startCall
+  // Once ICE connects after initiating a call (offerer side), directly activate
   useEffect(() => {
     if (pendingCallStartRef.current && isConnected) {
       pendingCallStartRef.current = false;
-      startCall();
+      directConnect(); // skips WS handshake — both sides activate independently
     }
-  }, [isConnected, startCall]);
+  }, [isConnected, directConnect]);
 
   const handleDeclineInvite = () => setInvite(null);
 
