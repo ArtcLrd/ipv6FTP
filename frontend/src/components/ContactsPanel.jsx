@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useContacts } from "../hooks/useContacts";
 import { apiPost } from "../lib/api";
 
@@ -13,19 +13,28 @@ export function ContactsPanel({ onJoinRoom, isConnected, currentRoomID, onDiscon
     removeContact 
   } = useContacts();
 
-  // Track which contact we're currently trying to connect/call to
-  const [pendingContactId, setPendingContactId] = useState(null);
+  // BUG 4 FIX: track per-contact pending state, not a single global one
+  const [pendingContacts, setPendingContacts] = useState(new Set());
+  // Track which dropdown is open
+  const [activeDropdown, setActiveDropdown] = useState(null);
+
+  const setPending = (id, val) => {
+    setPendingContacts(prev => {
+      const next = new Set(prev);
+      val ? next.add(id) : next.delete(id);
+      return next;
+    });
+  };
 
   const handleConnect = async (contact) => {
-    if (pendingContactId) return; // already in progress
-    setPendingContactId(contact.id);
+    if (pendingContacts.has(contact.id)) return;
+    setPending(contact.id, true);
+    setActiveDropdown(null);
     try {
       const res = await apiPost("/api/rooms/create");
       if (res.ok) {
         const { room_id } = await res.json();
-        // onJoinRoom handles disconnect internally — no need to call onDisconnect here
         onJoinRoom(room_id, "offerer");
-        // Invite peer via SSE
         await apiPost("/api/rooms/invite", {
           contact_id: contact.id,
           room_id,
@@ -35,34 +44,29 @@ export function ContactsPanel({ onJoinRoom, isConnected, currentRoomID, onDiscon
     } catch (err) {
       console.error("Connect error", err);
     } finally {
-      // Keep pendingContactId until connection is fully established or fails.
-      // We clear it after a delay since connection state is managed by AppPage.
-      setTimeout(() => setPendingContactId(null), 500);
+      setTimeout(() => setPending(contact.id, false), 500);
     }
   };
 
   const handleCall = async (contact) => {
-    if (pendingContactId) return;
-    setPendingContactId(contact.id);
+    if (pendingContacts.has(contact.id)) return;
+    setPending(contact.id, true);
+    setActiveDropdown(null);
     try {
       const res = await apiPost("/api/rooms/create");
       if (res.ok) {
         const { room_id } = await res.json();
-        // onJoinRoom handles disconnect internally
         onJoinRoom(room_id, "offerer");
-        // Invite peer via SSE as a call
         await apiPost("/api/rooms/invite", {
           contact_id: contact.id,
           room_id,
           type: "call"
         });
-        // NOTE: startCall() is now triggered in AppPage once ICE is actually connected.
-        // Do NOT call startCall() here directly — it won't work before ICE is up.
       }
     } catch (err) {
       console.error("Call error", err);
     } finally {
-      setTimeout(() => setPendingContactId(null), 500);
+      setTimeout(() => setPending(contact.id, false), 500);
     }
   };
 
@@ -109,8 +113,11 @@ export function ContactsPanel({ onJoinRoom, isConnected, currentRoomID, onDiscon
                 contact={contact} 
                 onConnect={() => handleConnect(contact)}
                 onCall={() => handleCall(contact)}
-                onRemove={() => removeContact(contact.id)}
-                isPending={pendingContactId === contact.id}
+                // BUG 3 FIX: close dropdown on remove
+                onRemove={() => { setActiveDropdown(null); removeContact(contact.id); }}
+                isPending={pendingContacts.has(contact.id)}
+                isOpen={activeDropdown === contact.id}
+                setIsOpen={(val) => setActiveDropdown(val ? contact.id : null)}
               />
             ))}
           </div>
@@ -123,7 +130,10 @@ export function ContactsPanel({ onJoinRoom, isConnected, currentRoomID, onDiscon
               <ContactRow 
                 key={contact.id} 
                 contact={contact} 
-                onRemove={() => removeContact(contact.id)}
+                // BUG 3 FIX: close dropdown on remove
+                onRemove={() => { setActiveDropdown(null); removeContact(contact.id); }}
+                isOpen={activeDropdown === contact.id}
+                setIsOpen={(val) => setActiveDropdown(val ? contact.id : null)}
                 disabled
               />
             ))}
@@ -134,35 +144,96 @@ export function ContactsPanel({ onJoinRoom, isConnected, currentRoomID, onDiscon
   );
 }
 
-function ContactRow({ contact, onConnect, onCall, onRemove, disabled, isPending }) {
+function ContactRow({ contact, onConnect, onCall, onRemove, disabled, isPending, isOpen, setIsOpen }) {
+  const [showConfirm, setShowConfirm] = useState(false);
+  // BUG 2 FIX: ref on the contact-actions container only, not the full row
+  const actionsRef = useRef(null);
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (actionsRef.current && !actionsRef.current.contains(event.target)) {
+        setIsOpen(false);
+        setShowConfirm(false);
+      }
+    }
+    if (isOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isOpen, setIsOpen]);
+
+  // Reset confirm state when dropdown closes
+  useEffect(() => {
+    if (!isOpen) setShowConfirm(false);
+  }, [isOpen]);
+
   return (
     <div className={`contact-row ${disabled ? "contact-row--disabled" : ""}`}>
       <div className="contact-row__info">
         <span className={`presence-dot presence-dot--${contact.status}`} />
         <span className="contact-row__username">{contact.username}</span>
       </div>
-      <div className="contact-row__actions">
-        {!disabled && (
-          <>
-            <button 
-              className="btn btn--ghost btn--sm" 
-              title={isPending ? "Connecting..." : "Connect"} 
-              onClick={onConnect}
-              disabled={isPending}
-            >
-              {isPending ? "⏳" : "⚡"}
-            </button>
-            <button 
-              className="btn btn--ghost btn--sm" 
-              title={isPending ? "Connecting..." : "Call"} 
-              onClick={onCall}
-              disabled={isPending}
-            >
-              {isPending ? "⏳" : "📞"}
-            </button>
-          </>
+      
+      {/* BUG 2 FIX: ref on this container, not the full row */}
+      <div className="contact-actions" ref={actionsRef}>
+        <button 
+          className="contact-actions__trigger" 
+          onClick={() => setIsOpen(!isOpen)}
+          disabled={isPending}
+        >
+          {isPending ? "⏳" : "⋮"}
+        </button>
+
+        {isOpen && (
+          <div className="contact-dropdown">
+            {!showConfirm ? (
+              <>
+                <button 
+                  className="contact-dropdown__item contact-dropdown__item--connect" 
+                  onClick={onConnect}
+                  disabled={disabled || isPending}
+                >
+                  <span className="contact-dropdown__icon">⚡</span>
+                  Connect Room
+                </button>
+                <button 
+                  className="contact-dropdown__item contact-dropdown__item--call" 
+                  onClick={onCall}
+                  disabled={disabled || isPending}
+                >
+                  <span className="contact-dropdown__icon">📞</span>
+                  Voice Call
+                </button>
+                <div style={{ height: "1px", background: "var(--border)", margin: "4px 0" }} />
+                <button 
+                  className="contact-dropdown__item contact-dropdown__item--danger" 
+                  onClick={() => setShowConfirm(true)}
+                >
+                  <span className="contact-dropdown__icon">✕</span>
+                  Remove Contact
+                </button>
+              </>
+            ) : (
+              <div className="contact-dropdown__confirm">
+                <div className="contact-dropdown__confirm-text">Remove @{contact.username}?</div>
+                <div className="contact-dropdown__confirm-actions">
+                  <button 
+                    className="btn btn--danger-ghost contact-dropdown__confirm-btn" 
+                    onClick={onRemove}
+                  >
+                    Yes
+                  </button>
+                  <button 
+                    className="btn btn--secondary contact-dropdown__confirm-btn" 
+                    onClick={() => setShowConfirm(false)}
+                  >
+                    No
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         )}
-        <button className="btn btn--danger-ghost btn--sm" title="Remove" onClick={onRemove}>✕</button>
       </div>
     </div>
   );

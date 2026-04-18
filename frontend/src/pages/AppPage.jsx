@@ -5,7 +5,6 @@ import { useWebRTC } from "../hooks/useWebRTC";
 import { useFileTransfer } from "../hooks/useFileTransfer";
 import { useVoice } from "../hooks/useVoice";
 import { useAuth } from "../contexts/AuthContext";
-import { useContacts } from "../hooks/useContacts";
 import { useSSE } from "../hooks/useSSE";
 import { IPDisplay } from "../components/IPDisplay";
 import { RoomPanel } from "../components/RoomPanel";
@@ -264,17 +263,6 @@ export function AppPage() {
             <IPDisplay ip={ip} isIPv6={isIPv6} loading={ipLoading} error={ipError} />
           </section>
 
-          {user && (
-            <section className="card">
-              {/* BUG 3 FIX: removed unused startCall prop */}
-              <ContactsPanel
-                onJoinRoom={handleJoinRoom}
-                isConnected={isConnected}
-                currentRoomID={roomID}
-                onDisconnect={disconnect}
-              />
-            </section>
-          )}
 
           <section className="card">
             <RoomPanel
@@ -315,6 +303,17 @@ export function AppPage() {
 
         {/* ── Right Column ── */}
         <div className="column column--right">
+          {user && (
+            <section className="card">
+              <ContactsPanel 
+                onJoinRoom={handleJoinRoom} 
+                isConnected={isConnected}
+                currentRoomID={roomID}
+                onDisconnect={disconnect}
+              />
+            </section>
+          )}
+
           <section className="card">
             <UploadZone onFilesAdded={addSharedFile} disabled={!isConnected} />
           </section>

@@ -1343,6 +1343,115 @@ code, .room-panel__room-id {
   opacity: 0.5;
 }
 
+/* ── Contact Dropdown Menu ── */
+.contact-actions {
+  position: relative;
+}
+
+.contact-actions__trigger {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition);
+  font-size: 1.1rem;
+}
+
+.contact-actions__trigger:hover {
+  background: var(--bg-surface-2);
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
+}
+
+.contact-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 8px;
+  background: rgba(17, 24, 39, 0.85);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border-glow);
+  border-radius: var(--radius-md);
+  min-width: 160px;
+  z-index: 1000;
+  overflow: hidden;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  animation: dropdown-fade-in 0.2s ease-out;
+}
+
+@keyframes dropdown-fade-in {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.contact-dropdown__item {
+  width: 100%;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background var(--transition);
+  text-align: left;
+}
+
+.contact-dropdown__item:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.contact-dropdown__item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.contact-dropdown__icon {
+  width: 16px;
+  text-align: center;
+  font-size: 0.9rem;
+}
+
+/* Action-specific colors */
+.contact-dropdown__item--connect .contact-dropdown__icon { color: var(--accent-blue); }
+.contact-dropdown__item--call .contact-dropdown__icon    { color: var(--accent-purple); }
+.contact-dropdown__item--danger .contact-dropdown__icon  { color: var(--accent-red); }
+.contact-dropdown__item--danger { color: var(--accent-red); }
+
+.contact-dropdown__confirm {
+  padding: 12px;
+  background: rgba(252, 129, 129, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.contact-dropdown__confirm-text {
+  font-size: 0.75rem;
+  color: var(--accent-red);
+  font-weight: 600;
+  text-align: center;
+}
+
+.contact-dropdown__confirm-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.contact-dropdown__confirm-btn {
+  flex: 1;
+  padding: 4px;
+  font-size: 0.7rem;
+}
+
 .invite-modal .voice-panel__incoming-dialog {
   border-color: var(--accent-blue);
   box-shadow: 0 0 30px rgba(99, 179, 237, 0.3);
