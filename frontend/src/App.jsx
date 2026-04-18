@@ -121,17 +121,11 @@ export default function App() {
     wasActiveRef.current = false; // reset: we're fully connected now
   }, []);
 
-  // onTrack: forward remote audio tracks to the voice hook
-  const onTrackRef = useRef(null);
-  const handleTrack = useCallback((event) => {
-    onTrackRef.current?.(event);
-  }, []);
-
+  // onTrack is handled directly by useVoice which attaches its own pc.ontrack handler.
   const { iceState, connState, connectionIPVersion, pcRef, handleSignal } = useWebRTC(
     activeRole,
     sendSignal,
     onChannelOpen,
-    handleTrack,
   );
 
   // Keep handleSignal ref fresh (avoids stale closure in onSignalingMessage)
