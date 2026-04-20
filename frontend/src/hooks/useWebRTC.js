@@ -12,10 +12,11 @@ import { getIceConfig, detectConnectionIPVersion } from "../lib/iceConfig";
  * @param {string|null} role         — "offerer" | "answerer" | null
  * @param {Function}    sendSignal   — function to send a signaling message
  * @param {Function}    onChannel    — callback when DataChannel opens: (channel) => void
+ * @param {Function}    [onTrack]    — optional callback when a remote track arrives: (event) => void
  *
- * @returns {{ iceState, connState, handleSignal, cleanup }}
+ * @returns {{ iceState, connState, connectionIPVersion, pcRef, handleSignal, cleanup }}
  */
-export function useWebRTC(role, sendSignal, onChannel) {
+export function useWebRTC(role, sendSignal, onChannel, onTrack) {
   const pcRef = useRef(null);
   const channelRef = useRef(null);
   const [iceState, setIceState] = useState("new");
@@ -27,6 +28,8 @@ export function useWebRTC(role, sendSignal, onChannel) {
   onChannelRef.current = onChannel;
   const sendSignalRef = useRef(sendSignal);
   sendSignalRef.current = sendSignal;
+  const onTrackRef = useRef(onTrack);
+  onTrackRef.current = onTrack;
 
   // Teardown helper — closes current PC and channel
   const cleanup = useCallback(() => {
@@ -80,6 +83,11 @@ export function useWebRTC(role, sendSignal, onChannel) {
       };
       pc.onconnectionstatechange = () => setConnState(pc.connectionState);
 
+      // ── Remote track handling (voice audio) ──────────────────────────────
+      pc.ontrack = (event) => {
+        onTrackRef.current?.(event);
+      };
+
       // ── DataChannel setup ───────────────────────────────────────────────
       const setupChannel = (channel) => {
         channelRef.current = channel;
@@ -94,10 +102,16 @@ export function useWebRTC(role, sendSignal, onChannel) {
         const channel = pc.createDataChannel("fileTransfer", { ordered: true });
         setupChannel(channel);
 
-        pc.createOffer().then((offer) => {
-          pc.setLocalDescription(offer);
-          sendSignalRef.current?.({ type: "offer", payload: offer });
-        });
+        pc.createOffer()
+          .then(async (offer) => {
+            try {
+              await pc.setLocalDescription(offer);
+              sendSignalRef.current?.({ type: "offer", payload: offer });
+            } catch (err) {
+              console.error("[webrtc] setLocalDescription failed:", err);
+            }
+          })
+          .catch((err) => console.error("[webrtc] createOffer failed:", err));
       } else {
         // Answerer: wait for DataChannel from the offerer
         pc.ondatachannel = ({ channel }) => setupChannel(channel);
@@ -146,5 +160,5 @@ export function useWebRTC(role, sendSignal, onChannel) {
     }
   }, []);
 
-  return { iceState, connState, connectionIPVersion, handleSignal, cleanup };
+  return { iceState, connState, connectionIPVersion, pcRef, handleSignal, cleanup };
 }
