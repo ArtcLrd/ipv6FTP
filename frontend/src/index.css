@@ -1104,6 +1104,7 @@ code, .room-panel__room-id {
   font-weight: 800;
   background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
   margin-bottom: 4px;
 }

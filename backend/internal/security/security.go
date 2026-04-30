@@ -1,0 +1,107 @@
+package security
+
+import (
+	"context"
+	"net"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+
+	apperr "ipv6ftp/internal/errors"
+)
+
+type TokenClaims struct {
+	Sub      string `json:"sub"`
+	Username string `json:"username"`
+	Role     string `json:"role"`
+	jwt.RegisteredClaims
+}
+
+func IssueTokenPair(secret []byte, userID, username string) (string, string, error) {
+	accessClaims := &TokenClaims{
+		Sub:      userID,
+		Username: username,
+		Role:     "access",
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+	accessToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims).SignedString(secret)
+	if err != nil {
+		return "", "", err
+	}
+
+	refreshClaims := &TokenClaims{
+		Sub:      userID,
+		Username: username,
+		Role:     "refresh",
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(7 * 24 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+	refreshToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims).SignedString(secret)
+	if err != nil {
+		return "", "", err
+	}
+	return accessToken, refreshToken, nil
+}
+
+func ParseToken(secret []byte, tokenStr, expectRole string) (*TokenClaims, error) {
+	token, err := jwt.ParseWithClaims(tokenStr, &TokenClaims{}, func(token *jwt.Token) (interface{}, error) {
+		return secret, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	claims, ok := token.Claims.(*TokenClaims)
+	if !ok || !token.Valid {
+		return nil, apperr.ErrUnauthorized
+	}
+	if claims.Role != expectRole {
+		return nil, apperr.ErrUnauthorized
+	}
+	return claims, nil
+}
+
+func ClientIP(r *http.Request) string {
+	remoteAddr := r.RemoteAddr
+	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+		remoteAddr = strings.TrimSpace(strings.Split(forwarded, ",")[0])
+	} else if realIP := r.Header.Get("X-Real-IP"); realIP != "" {
+		remoteAddr = realIP
+	}
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
+	}
+	return strings.Trim(host, "[]")
+}
+
+func IsIPv6(ip string) bool { return strings.Contains(ip, ":") }
+
+func SetAuthCookies(w http.ResponseWriter, access, refresh string, environment string) {
+	isProd := environment == "production"
+	http.SetCookie(w, &http.Cookie{Name: "access_token", Value: access, Path: "/", Expires: time.Now().Add(15 * time.Minute), HttpOnly: true, Secure: isProd, SameSite: http.SameSiteStrictMode})
+	http.SetCookie(w, &http.Cookie{Name: "refresh_token", Value: refresh, Path: "/", Expires: time.Now().Add(7 * 24 * time.Hour), HttpOnly: true, Secure: isProd, SameSite: http.SameSiteStrictMode})
+}
+
+func ClearAuthCookies(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{Name: "access_token", Value: "", Path: "/", MaxAge: -1, HttpOnly: true})
+	http.SetCookie(w, &http.Cookie{Name: "refresh_token", Value: "", Path: "/", MaxAge: -1, HttpOnly: true})
+}
+
+func ClaimsFromContext(ctx context.Context) *TokenClaims {
+	claims, _ := ctx.Value(claimsContextKey{}).(*TokenClaims)
+	return claims
+}
+
+type claimsContextKey struct{}
+
+func contextWithClaims(ctx context.Context, claims *TokenClaims) context.Context {
+	return context.WithValue(ctx, claimsContextKey{}, claims)
+}
+
