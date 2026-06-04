@@ -1,11 +1,15 @@
 package middleware
 
 import (
+	"bufio"
 	"context"
+	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"runtime/debug"
 	"strconv"
+	"strings"
 	"time"
 
 	"ipv6ftp/internal/config"
@@ -23,12 +27,17 @@ func ClaimsFromContext(ctx context.Context) *security.TokenClaims {
 
 func Auth(cfg config.Config, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		cookie, err := r.Cookie("access_token")
-		if err != nil {
+		authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
+		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
-		claims, err := security.ParseToken([]byte(cfg.JWTSecret), cookie.Value, "access")
+		token := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+		if token == "" {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		claims, err := security.ParseToken([]byte(cfg.JWTSecret), token, "access")
 		if err != nil {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
@@ -61,6 +70,19 @@ func (r *statusRecorder) WriteHeader(status int) {
 	r.ResponseWriter.WriteHeader(status)
 }
 
+func (r *statusRecorder) Flush() {
+	if f, ok := r.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (r *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hj, ok := r.ResponseWriter.(http.Hijacker); ok {
+		return hj.Hijack()
+	}
+	return nil, nil, fmt.Errorf("http.Hijacker not implemented")
+}
+
 func Logging(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
@@ -79,13 +101,17 @@ func CORS(cfg config.Config, next http.Handler) http.Handler {
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
+		allowCredentials := false
 		if _, ok := allowed["*"]; ok || origin == "" {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 		} else if _, ok := allowed[origin]; ok {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
+			allowCredentials = true
 		}
-		w.Header().Set("Access-Control-Allow-Credentials", "true")
+		if allowCredentials {
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+		}
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		if r.Method == http.MethodOptions {
@@ -120,6 +146,17 @@ func RateLimit(cfg config.Config, cache repository.CacheRepo, next http.Handler)
 func Lockdown(cfg config.Config, cache repository.CacheRepo, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		claims := ClaimsFromContext(r.Context())
+		if claims == nil {
+			authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
+			if strings.HasPrefix(authHeader, "Bearer ") {
+				token := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+				if token != "" {
+					if parsedClaims, err := security.ParseToken([]byte(cfg.JWTSecret), token, "access"); err == nil {
+						claims = parsedClaims
+					}
+				}
+			}
+		}
 		if claims != nil && rbac.HasPermission(claims.Role, "manage:lockdown") {
 			next.ServeHTTP(w, r)
 			return

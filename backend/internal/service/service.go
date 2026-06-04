@@ -4,6 +4,7 @@ import (
 	"context"
 	crand "crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"math/rand/v2"
 	"net/http"
@@ -57,7 +58,9 @@ func hashPassword(plain string, cost int) (string, error) {
 	return string(bytes), err
 }
 
-func checkPassword(hash, plain string) bool { return bcrypt.CompareHashAndPassword([]byte(hash), []byte(plain)) == nil }
+func checkPassword(hash, plain string) bool {
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(plain)) == nil
+}
 
 func hashRefreshToken(refresh string) string {
 	if len(refresh) > 72 {
@@ -88,9 +91,12 @@ func (s *AuthService) Register(ctx context.Context, req models.RegisterRequest, 
 	}
 	user, err := s.users.Create(ctx, req.Username, hash, ipAddr)
 	if err != nil {
+		if repository.IsDuplicateError(err) {
+			return models.User{}, "", "", appErrors.New("Username is already taken", http.StatusConflict)
+		}
 		return models.User{}, "", "", err
 	}
-	access, refresh, err := security.IssueTokenPair([]byte(s.cfg.JWTSecret), user.ID, user.Username)
+	access, refresh, err := security.IssueTokenPair([]byte(s.cfg.JWTSecret), user.ID, user.Username, "user")
 	if err != nil {
 		return models.User{}, "", "", err
 	}
@@ -111,7 +117,7 @@ func (s *AuthService) Login(ctx context.Context, req models.LoginRequest, ipAddr
 	if err := s.users.UpdateStatusIP(ctx, user.ID, ipAddr, "online"); err != nil {
 		return models.User{}, "", "", err
 	}
-	access, refresh, err := security.IssueTokenPair([]byte(s.cfg.JWTSecret), user.ID, user.Username)
+	access, refresh, err := security.IssueTokenPair([]byte(s.cfg.JWTSecret), user.ID, user.Username, user.Role)
 	if err != nil {
 		return models.User{}, "", "", err
 	}
@@ -141,7 +147,7 @@ func (s *AuthService) Refresh(ctx context.Context, refreshToken, userAgent, ipAd
 	if err != nil {
 		return "", "", appErrors.ErrUnauthorized
 	}
-	access, refresh, err := security.IssueTokenPair([]byte(s.cfg.JWTSecret), claims.Sub, claims.Username)
+	access, refresh, err := security.IssueTokenPair([]byte(s.cfg.JWTSecret), claims.Sub, claims.Username, claims.Role)
 	if err != nil {
 		return "", "", err
 	}
@@ -219,7 +225,10 @@ func (s *PhonebookService) Lookup(ctx context.Context, username string) (*models
 	}
 	if s.cache != nil {
 		if cached, ok, _ := s.cache.GetString(ctx, "ipv6ftp:phonebook:"+username); ok && cached != "" {
-			return &models.ResolvedAddress{Username: username}, nil
+			var entry models.ResolvedAddress
+			if err := json.Unmarshal([]byte(cached), &entry); err == nil {
+				return &entry, nil
+			}
 		}
 	}
 	entry, err := s.repo.Resolve(ctx, username)
@@ -235,6 +244,16 @@ func (s *PhonebookService) Lookup(ctx context.Context, username string) (*models
 
 func (s *PhonebookService) Heartbeat(ctx context.Context, userID string, req models.HeartbeatRequest, ipAddr string) error {
 	return s.repo.Heartbeat(ctx, userID, req, ipAddr)
+}
+
+func (s *PhonebookService) UpdatePublicKey(ctx context.Context, userID, publicKey string) error {
+	if publicKey == "" {
+		return appErrors.New("public_key is required", http.StatusBadRequest)
+	}
+	if s.cache != nil {
+		_ = s.cache.Set(ctx, "ipv6ftp:pubkey:"+userID, publicKey, time.Hour)
+	}
+	return s.repo.UpdatePublicKey(ctx, userID, publicKey)
 }
 
 func jitter() { time.Sleep(time.Duration(50+rand.IntN(150)) * time.Millisecond) }

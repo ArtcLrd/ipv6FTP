@@ -47,14 +47,32 @@ func New(ctx context.Context) (*App, error) {
 	contactRepo := repository.NewPgContactRepo(pool)
 	sessionRepo := repository.NewPgSessionRepo(pool)
 	phonebookRepo := repository.NewPgPhonebookRepo(pool)
-	cache := repository.NewMemoryCacheRepo()
+	cache := repository.CacheRepo(repository.NewMemoryCacheRepo())
+	closeFns := []func(context.Context) error{
+		func(context.Context) error {
+			pool.Close()
+			return nil
+		},
+	}
+	if cfg.RedisURL != "" {
+		redisClient, redisErr := repository.NewRedisClient(buildCtx, cfg.RedisURL, cfg.RedisPassword, cfg.RedisDB)
+		if redisErr != nil {
+			log.Warn("redis unavailable, using in-memory cache", "error", redisErr)
+		} else {
+			cache = repository.NewRedisCacheRepo(redisClient)
+			closeFns = append(closeFns, func(context.Context) error {
+				return redisClient.Close()
+			})
+			log.Info("redis cache enabled", "addr", cfg.RedisURL)
+		}
+	}
 	hub := realtime.NewHub()
 	broker := realtime.NewSSEBroker()
 	authSvc := service.NewAuthService(cfg, userRepo, contactRepo, sessionRepo, cache, broker)
 	userSvc := service.NewUserService(userRepo, contactRepo, cache, broker)
 	phoneSvc := service.NewPhonebookService(phonebookRepo, cache)
 	router := transporthttp.NewRouter(transporthttp.RouterDeps{Config: cfg, Logger: log, Auth: authSvc, User: userSvc, Phonebook: phoneSvc, Hub: hub, Broker: broker, Cache: cache, UserRepo: userRepo, ContactRepo: contactRepo})
-	return &App{Config: cfg, Logger: log, Pool: pool, Cache: cache, Hub: hub, Broker: broker, Auth: authSvc, User: userSvc, Phonebook: phoneSvc, Router: router, closeFns: []func(context.Context) error{func(context.Context) error { pool.Close(); return nil }}}, nil
+	return &App{Config: cfg, Logger: log, Pool: pool, Cache: cache, Hub: hub, Broker: broker, Auth: authSvc, User: userSvc, Phonebook: phoneSvc, Router: router, closeFns: closeFns}, nil
 }
 
 func (a *App) Close(ctx context.Context) error {

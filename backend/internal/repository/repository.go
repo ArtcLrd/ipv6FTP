@@ -43,6 +43,7 @@ type SessionRepo interface {
 type PhonebookRepo interface {
 	Resolve(ctx context.Context, username string) (*models.ResolvedAddress, error)
 	Heartbeat(ctx context.Context, userID string, req models.HeartbeatRequest, ipAddr string) error
+	UpdatePublicKey(ctx context.Context, userID, publicKey string) error
 }
 
 type CacheRepo interface {
@@ -163,9 +164,9 @@ type PgContactRepo struct{ Pool *pgxpool.Pool }
 type PgSessionRepo struct{ Pool *pgxpool.Pool }
 type PgPhonebookRepo struct{ Pool *pgxpool.Pool }
 
-func NewPgUserRepo(pool *pgxpool.Pool) *PgUserRepo { return &PgUserRepo{Pool: pool} }
-func NewPgContactRepo(pool *pgxpool.Pool) *PgContactRepo { return &PgContactRepo{Pool: pool} }
-func NewPgSessionRepo(pool *pgxpool.Pool) *PgSessionRepo { return &PgSessionRepo{Pool: pool} }
+func NewPgUserRepo(pool *pgxpool.Pool) *PgUserRepo           { return &PgUserRepo{Pool: pool} }
+func NewPgContactRepo(pool *pgxpool.Pool) *PgContactRepo     { return &PgContactRepo{Pool: pool} }
+func NewPgSessionRepo(pool *pgxpool.Pool) *PgSessionRepo     { return &PgSessionRepo{Pool: pool} }
 func NewPgPhonebookRepo(pool *pgxpool.Pool) *PgPhonebookRepo { return &PgPhonebookRepo{Pool: pool} }
 
 func (r *PgUserRepo) Create(ctx context.Context, username, passwordHash, ipAddr string) (models.User, error) {
@@ -350,9 +351,23 @@ func (r *PgPhonebookRepo) Heartbeat(ctx context.Context, userID string, req mode
 	return err
 }
 
+func (r *PgPhonebookRepo) UpdatePublicKey(ctx context.Context, userID, publicKey string) error {
+	_, err := r.Pool.Exec(ctx, `
+		INSERT INTO phonebook (user_id, public_key, is_online)
+		VALUES ($1, $2, FALSE)
+		ON CONFLICT (user_id) DO UPDATE SET
+			public_key = EXCLUDED.public_key,
+			updated_at = NOW()`, userID, publicKey)
+	return err
+}
+
 func duplicateErr(err error) bool {
 	var pgErr *pgconn.PgError
 	return err != nil && (errors.As(err, &pgErr) && pgErr.Code == "23505" || strings.Contains(err.Error(), "duplicate key"))
+}
+
+func IsDuplicateError(err error) bool {
+	return duplicateErr(err)
 }
 
 func scanStringPtr(value any) *string {

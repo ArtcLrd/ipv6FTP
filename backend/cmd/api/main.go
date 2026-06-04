@@ -2,13 +2,10 @@ package main
 
 import (
 	"context"
-	"embed"
-	"io/fs"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -16,9 +13,6 @@ import (
 
 	"ipv6ftp/internal/bootstrap"
 )
-
-//go:embed all:dist
-var distFS embed.FS
 
 func main() {
 	_ = godotenv.Load()
@@ -30,7 +24,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:         ":" + app.Config.Port,
-		Handler:      spaFallback(app.Router, distFS),
+		Handler:      app.Router,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,
@@ -57,33 +51,4 @@ func main() {
 	if err := app.Close(ctx); err != nil {
 		log.Printf("app close failed: %v", err)
 	}
-}
-
-func spaFallback(apiHandler http.Handler, embedded embed.FS) http.Handler {
-	assetFS, err := fs.Sub(embedded, "dist")
-	if err != nil {
-		assetFS = os.DirFS("dist")
-	}
-	fileHandler := http.FileServer(http.FS(assetFS))
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if isAPIRoute(r.URL.Path) {
-			apiHandler.ServeHTTP(w, r)
-			return
-		}
-		if r.URL.Path == "/" || r.URL.Path == "" {
-			fileHandler.ServeHTTP(w, r)
-			return
-		}
-		assetPath := strings.TrimPrefix(r.URL.Path, "/")
-		if _, err := fs.Stat(assetFS, assetPath); err == nil {
-			fileHandler.ServeHTTP(w, r)
-			return
-		}
-		r.URL.Path = "/"
-		fileHandler.ServeHTTP(w, r)
-	})
-}
-
-func isAPIRoute(path string) bool {
-	return path == "/healthz" || path == "/ws" || len(path) >= 4 && path[:4] == "/api"
 }

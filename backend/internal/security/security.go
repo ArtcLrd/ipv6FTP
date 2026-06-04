@@ -13,17 +13,22 @@ import (
 )
 
 type TokenClaims struct {
-	Sub      string `json:"sub"`
-	Username string `json:"username"`
-	Role     string `json:"role"`
+	Sub       string `json:"sub"`
+	Username  string `json:"username"`
+	Role      string `json:"role"`
+	TokenType string `json:"token_type"`
 	jwt.RegisteredClaims
 }
 
-func IssueTokenPair(secret []byte, userID, username string) (string, string, error) {
+func IssueTokenPair(secret []byte, userID, username, role string) (string, string, error) {
+	if role == "" {
+		role = "user"
+	}
 	accessClaims := &TokenClaims{
-		Sub:      userID,
-		Username: username,
-		Role:     "access",
+		Sub:       userID,
+		Username:  username,
+		Role:      role,
+		TokenType: "access",
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -35,9 +40,10 @@ func IssueTokenPair(secret []byte, userID, username string) (string, string, err
 	}
 
 	refreshClaims := &TokenClaims{
-		Sub:      userID,
-		Username: username,
-		Role:     "refresh",
+		Sub:       userID,
+		Username:  username,
+		Role:      role,
+		TokenType: "refresh",
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(7 * 24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -50,7 +56,7 @@ func IssueTokenPair(secret []byte, userID, username string) (string, string, err
 	return accessToken, refreshToken, nil
 }
 
-func ParseToken(secret []byte, tokenStr, expectRole string) (*TokenClaims, error) {
+func ParseToken(secret []byte, tokenStr, expectType string) (*TokenClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenStr, &TokenClaims{}, func(token *jwt.Token) (interface{}, error) {
 		return secret, nil
 	})
@@ -61,7 +67,7 @@ func ParseToken(secret []byte, tokenStr, expectRole string) (*TokenClaims, error
 	if !ok || !token.Valid {
 		return nil, apperr.ErrUnauthorized
 	}
-	if claims.Role != expectRole {
+	if claims.TokenType != expectType {
 		return nil, apperr.ErrUnauthorized
 	}
 	return claims, nil
@@ -83,16 +89,11 @@ func ClientIP(r *http.Request) string {
 
 func IsIPv6(ip string) bool { return strings.Contains(ip, ":") }
 
-func SetAuthCookies(w http.ResponseWriter, access, refresh string, environment string) {
-	isProd := environment == "production"
-	http.SetCookie(w, &http.Cookie{Name: "access_token", Value: access, Path: "/", Expires: time.Now().Add(15 * time.Minute), HttpOnly: true, Secure: isProd, SameSite: http.SameSiteStrictMode})
-	http.SetCookie(w, &http.Cookie{Name: "refresh_token", Value: refresh, Path: "/", Expires: time.Now().Add(7 * 24 * time.Hour), HttpOnly: true, Secure: isProd, SameSite: http.SameSiteStrictMode})
-}
+// Deprecated: Expo/native clients use Authorization Bearer tokens, not cookies.
+func SetAuthCookies(w http.ResponseWriter, access, refresh string, environment string) {}
 
-func ClearAuthCookies(w http.ResponseWriter) {
-	http.SetCookie(w, &http.Cookie{Name: "access_token", Value: "", Path: "/", MaxAge: -1, HttpOnly: true})
-	http.SetCookie(w, &http.Cookie{Name: "refresh_token", Value: "", Path: "/", MaxAge: -1, HttpOnly: true})
-}
+// Deprecated: Expo/native clients use Authorization Bearer tokens, not cookies.
+func ClearAuthCookies(w http.ResponseWriter) {}
 
 func ClaimsFromContext(ctx context.Context) *TokenClaims {
 	claims, _ := ctx.Value(claimsContextKey{}).(*TokenClaims)
@@ -104,4 +105,3 @@ type claimsContextKey struct{}
 func contextWithClaims(ctx context.Context, claims *TokenClaims) context.Context {
 	return context.WithValue(ctx, claimsContextKey{}, claims)
 }
-

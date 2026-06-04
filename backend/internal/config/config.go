@@ -11,6 +11,9 @@ type Config struct {
 	Port           string
 	Environment    string
 	DatabaseURL    string
+	RedisURL       string
+	RedisPassword  string
+	RedisDB        int
 	JWTSecret      string
 	CORSOrigins    []string
 	BcryptCost     int
@@ -29,7 +32,10 @@ func Load() (Config, error) {
 	cfg := Config{
 		Port:           env("PORT", "8080"),
 		Environment:    env("ENVIRONMENT", "development"),
-		DatabaseURL:    firstNonEmpty(os.Getenv("SUPABASE_DB_URL"), os.Getenv("DATABASE_URL"), os.Getenv("POSTGRES_URL")),
+		DatabaseURL:    firstNonEmpty(os.Getenv("DATABASE_URL"), os.Getenv("SUPABASE_DB_URL"), os.Getenv("POSTGRES_URL")),
+		RedisURL:       strings.TrimSpace(os.Getenv("REDIS_URL")),
+		RedisPassword:  strings.TrimSpace(os.Getenv("REDIS_PASSWORD")),
+		RedisDB:        envInt("REDIS_DB", 0),
 		JWTSecret:      os.Getenv("JWT_SECRET"),
 		CORSOrigins:    splitList(env("CORS_ORIGINS", "*")),
 		BcryptCost:     envInt("BCRYPT_COST", 12),

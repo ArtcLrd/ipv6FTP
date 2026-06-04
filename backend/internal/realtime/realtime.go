@@ -219,6 +219,8 @@ func (c *Client) ReadPump() {
 			continue
 		}
 		switch msg.Type {
+		case "ping":
+			continue
 		case "offer", "answer", "ice-candidate", "call-invite", "call-accepted", "call-rejected", "call-ended":
 			c.hub.Relay(c.roomID, c, msg)
 		default:

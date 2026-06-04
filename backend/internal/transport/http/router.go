@@ -23,7 +23,7 @@ type RouterDeps struct {
 	Broker      *realtime.SSEBroker
 	Cache       repository.CacheRepo
 	UserRepo    repository.UserRepo
-	ContactRepo  repository.ContactRepo
+	ContactRepo repository.ContactRepo
 }
 
 func NewRouter(deps RouterDeps) http.Handler {
@@ -33,7 +33,9 @@ func NewRouter(deps RouterDeps) http.Handler {
 	roomHandler := handlers.NewRoomHandler(deps.Config, deps.Hub, deps.Broker, deps.UserRepo, deps.ContactRepo, deps.Cache)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { handlers.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"}) })
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		handlers.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	})
 	mux.HandleFunc("/api/myip", roomHandler.MyIP)
 	mux.HandleFunc("/api/turn-credentials", roomHandler.TURNCredentials)
 	mux.HandleFunc("/api/auth/register", authHandler.Register)
@@ -48,8 +50,9 @@ func NewRouter(deps RouterDeps) http.Handler {
 	mux.HandleFunc("/api/rooms/create", middleware.Auth(deps.Config, roomHandler.CreateRoom))
 	mux.HandleFunc("/api/rooms/invite", middleware.Auth(deps.Config, roomHandler.Invite))
 	mux.HandleFunc("/api/events", middleware.Auth(deps.Config, userHandler.SSEEvents))
-	mux.HandleFunc("/api/v1/phonebook/", middleware.Auth(deps.Config, phonebookHandler.Lookup))
 	mux.HandleFunc("/api/v1/phonebook/heartbeat", middleware.Auth(deps.Config, phonebookHandler.Heartbeat))
+	mux.HandleFunc("/api/v1/phonebook/pubkey", middleware.Auth(deps.Config, phonebookHandler.UpdatePublicKey))
+	mux.HandleFunc("/api/v1/phonebook/", middleware.Auth(deps.Config, phonebookHandler.Lookup))
 	mux.HandleFunc("/api/v1/admin/lockdown", middleware.Auth(deps.Config, roomHandler.AdminLockdown))
 	mux.HandleFunc("/ws", roomHandler.WebSocket)
 
