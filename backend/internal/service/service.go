@@ -161,6 +161,17 @@ func (s *AuthService) Me(ctx context.Context, userID string) (models.User, error
 	return s.users.GetByID(ctx, userID)
 }
 
+// UsernameExists returns true when a user with the given username is found.
+// A "not found" result is treated as exists=false (not an error).
+func (s *AuthService) UsernameExists(ctx context.Context, username string) (bool, error) {
+	_, err := s.users.GetByUsername(ctx, username)
+	if err != nil {
+		// Assume not found — the repo returns an error for missing rows
+		return false, nil
+	}
+	return true, nil
+}
+
 func (s *AuthService) notifyContacts(ctx context.Context, userID, eventType string) {
 	if s.contacts == nil || s.broker == nil {
 		return

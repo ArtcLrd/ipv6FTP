@@ -25,6 +25,13 @@ export async function login(username: string, password: string): Promise<User> {
   return data.user;
 }
 
+export async function checkUsername(username: string): Promise<{ exists: boolean; username: string }> {
+  const { data } = await client.get<{ exists: boolean; username: string }>(
+    `/api/auth/check-username?username=${encodeURIComponent(username.trim())}`
+  );
+  return data;
+}
+
 export async function register(username: string, password: string): Promise<User> {
   const { data } = await client.post<AuthResponse>('/api/auth/register', { username, password });
   await storeTokens(data.access_token, data.refresh_token);

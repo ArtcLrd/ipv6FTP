@@ -40,6 +40,7 @@ func NewRouter(deps RouterDeps) http.Handler {
 	mux.HandleFunc("/api/turn-credentials", roomHandler.TURNCredentials)
 	mux.HandleFunc("/api/auth/register", authHandler.Register)
 	mux.HandleFunc("/api/auth/login", authHandler.Login)
+	mux.HandleFunc("/api/auth/check-username", authHandler.CheckUsername)
 	mux.HandleFunc("/api/auth/refresh", authHandler.Refresh)
 	mux.HandleFunc("/api/auth/logout", middleware.Auth(deps.Config, authHandler.Logout))
 	mux.HandleFunc("/api/auth/me", middleware.Auth(deps.Config, authHandler.Me))

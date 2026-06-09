@@ -13,6 +13,12 @@ export function useLogin() {
   });
 }
 
+export function useCheckUsername() {
+  return useMutation({
+    mutationFn: (username: string) => authApi.checkUsername(username),
+  });
+}
+
 export function useRegister() {
   return useMutation({
     mutationFn: ({ username, password }: any) => authApi.register(username, password),

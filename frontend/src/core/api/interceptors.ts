@@ -24,8 +24,13 @@ export const setupInterceptors = (client: AxiosInstance) => {
     async (error) => {
       const originalRequest = error.config;
 
-      // If error is not 401 or request was already retried, reject
-      if (error.response?.status !== 401 || originalRequest._retry) {
+      // If error is not 401, request was already retried, or it's a login/register request, reject
+      if (
+        error.response?.status !== 401 ||
+        originalRequest._retry ||
+        originalRequest.url?.includes('/api/auth/login') ||
+        originalRequest.url?.includes('/api/auth/register')
+      ) {
         return Promise.reject(error);
       }
 

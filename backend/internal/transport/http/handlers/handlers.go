@@ -153,6 +153,28 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, user)
 }
 
+// CheckUsername checks whether a username is already registered.
+// GET /api/auth/check-username?username=xxx
+// Returns: { "exists": true|false, "username": "xxx" }
+// This endpoint is intentionally public (no auth required) — same pattern as Google/Slack.
+// Username enumeration risk is accepted; rate limiting mitigates abuse.
+func (h *AuthHandler) CheckUsername(w http.ResponseWriter, r *http.Request) {
+	username := strings.TrimSpace(r.URL.Query().Get("username"))
+	if username == "" {
+		http.Error(w, "username query param required", http.StatusBadRequest)
+		return
+	}
+	exists, err := h.svc.UsernameExists(r.Context(), username)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"exists":   exists,
+		"username": username,
+	})
+}
+
 func (h *UserHandler) UpdateIP(w http.ResponseWriter, r *http.Request) {
 	claims := middleware.ClaimsFromContext(r.Context())
 	if claims == nil {
@@ -256,7 +278,7 @@ func (h *UserHandler) SSEEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	_, _ = fmt.Fprint(w, ": connected\n\n")
 	flusher.Flush()
-	ticker := time.NewTicker(25 * time.Second)
+	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 	for {
 		select {
