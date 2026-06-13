@@ -1,18 +1,21 @@
 import React from 'react';
-import { View, Text, StyleSheet, SafeAreaView } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { Theme } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
-import { GlassCard } from '../components/GlassCard';
+import { ScreenLayout } from '../components/ScreenLayout';
+import { NeuCard } from '../components/NeuCard';
 
 export function CallsPage() {
-  return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Call History</Text>
-      </View>
+  const HeaderComponent = (
+    <View style={styles.header}>
+      <Text style={styles.title}>Call History</Text>
+    </View>
+  );
 
+  return (
+    <ScreenLayout header={HeaderComponent} scrollable={false}>
       <View style={styles.content}>
-        <GlassCard style={styles.card}>
+        <NeuCard style={styles.card}>
           <Ionicons name="call-outline" size={48} color={Theme.colors.textSecondary} />
           <Text style={styles.emptyTitle}>No Recent Calls</Text>
           <Text style={styles.emptyDesc}>
@@ -22,21 +25,17 @@ export function CallsPage() {
             <Ionicons name="shield-checkmark" size={14} color={Theme.colors.accent} style={styles.shield} />
             <Text style={styles.badgeText}>E2EE Secured</Text>
           </View>
-        </GlassCard>
+        </NeuCard>
       </View>
-    </SafeAreaView>
+    </ScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Theme.colors.background,
-  },
   header: {
     paddingHorizontal: Theme.spacing.md,
     paddingTop: Theme.spacing.md,
-    marginBottom: Theme.spacing.md,
+    paddingBottom: Theme.spacing.sm,
   },
   title: {
     fontSize: 24,
@@ -46,7 +45,6 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     justifyContent: 'center',
-    paddingHorizontal: Theme.spacing.md,
   },
   card: {
     padding: Theme.spacing.xl,
@@ -73,7 +71,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(56, 189, 248, 0.1)',
     paddingHorizontal: Theme.spacing.md,
     paddingVertical: Theme.spacing.xs,
-    borderRadius: Theme.roundness.full,
+    borderRadius: 4, // blocky badge
   },
   shield: {
     marginRight: 6,

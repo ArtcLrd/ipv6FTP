@@ -7,8 +7,6 @@ import {
   TextInput,
   TouchableOpacity,
   RefreshControl,
-  SafeAreaView,
-  Animated,
 } from 'react-native';
 import { useAuth } from '../modules/auth/hooks';
 import { useContacts } from '../modules/contacts/hooks';
@@ -16,90 +14,44 @@ import { webrtcManager } from '../modules/call/webrtc';
 import { Contact } from '../modules/contacts/types';
 import { Theme } from '../theme';
 import { Avatar } from '../components/Avatar';
-import { GlassCard } from '../components/GlassCard';
 import { Ionicons } from '@expo/vector-icons';
-
-function PulsingStatus({ isOnline }: { isOnline: boolean }) {
-  const pulseAnim = React.useRef(new Animated.Value(0.4)).current;
-
-  React.useEffect(() => {
-    if (!isOnline) return;
-
-    const animation = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 1200,
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulseAnim, {
-          toValue: 0.4,
-          duration: 1200,
-          useNativeDriver: true,
-        }),
-      ])
-    );
-
-    animation.start();
-
-    return () => animation.stop();
-  }, [isOnline]);
-
-  if (!isOnline) {
-    return (
-      <View
-        style={[
-          styles.statusIndicator,
-          { backgroundColor: Theme.colors.textSecondary },
-        ]}
-      />
-    );
-  }
-
-  return (
-    <View style={styles.pulseContainer}>
-      <Animated.View
-        style={[
-          styles.statusPulse,
-          {
-            backgroundColor: Theme.colors.success,
-            transform: [
-              {
-                scale: pulseAnim.interpolate({
-                  inputRange: [0.4, 1],
-                  outputRange: [1, 2.2],
-                }),
-              },
-            ],
-            opacity: pulseAnim.interpolate({
-              inputRange: [0.4, 1],
-              outputRange: [0.8, 0],
-            }),
-          },
-        ]}
-      />
-      <View
-        style={[
-          styles.statusIndicator,
-          { backgroundColor: Theme.colors.success },
-        ]}
-      />
-    </View>
-  );
-}
+import { ScreenLayout } from '../components/ScreenLayout';
+import { NeuCard } from '../components/NeuCard';
+import { NeuButton } from '../components/NeuButton';
+import { PulsingDot } from '../components/PulsingDot';
+import { FilterChips } from '../components/FilterChips';
+import { useContactsUIStore } from '../state/contactsUIStore';
+import { useIpv6Status } from '../hooks/useIpv6Status';
 
 export function ContactsPage({ navigation }: any) {
   const { user } = useAuth();
   const { data: contacts, isLoading: loadingContacts, refetch: refetchContacts } = useContacts();
   const [localSearch, setLocalSearch] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+
+  const { hasIpv6 } = useIpv6Status();
+  const { activeFilter } = useContactsUIStore();
 
   const startCall = (contact: Contact) => {
     webrtcManager.startCall(contact);
   };
 
-  const filteredContacts = contacts?.filter((c) =>
-    c.username.toLowerCase().includes(localSearch.toLowerCase())
-  );
+  const filteredContacts = contacts?.filter((c) => {
+    const matchSearch = c.username.toLowerCase().includes(localSearch.toLowerCase());
+    const matchFilter =
+      activeFilter === 'all'
+        ? true
+        : activeFilter === 'online'
+        ? c.status === 'online'
+        : activeFilter === 'offline'
+        ? c.status !== 'online'
+        : activeFilter === 'ipv6'
+        ? c.ip_addr?.includes(':')
+        : activeFilter === 'ipv4'
+        ? !!c.ip_addr && !c.ip_addr.includes(':')
+        : true;
+    return matchSearch && matchFilter;
+  });
 
   const onlineCount = contacts?.filter((c) => c.status === 'online').length || 0;
 
@@ -111,11 +63,13 @@ export function ContactsPage({ navigation }: any) {
         activeOpacity={0.7}
         onPress={() => navigation.navigate('ContactDetails', { contact: item })}
       >
-        <GlassCard style={styles.contactCard}>
+        <NeuCard style={styles.contactCard}>
           <View style={styles.contactLeft}>
-            <Avatar username={item.username} size={44} />
-            <View style={styles.statusIndicatorContainer}>
-              <PulsingStatus isOnline={isOnline} />
+            <View style={styles.avatarWrapper}>
+              <Avatar username={item.username} size={44} />
+              <View style={styles.statusIndicatorContainer}>
+                <PulsingDot active={isOnline} color={isOnline ? Theme.colors.success : Theme.colors.textSecondary} size={10} pulse={isOnline} />
+              </View>
             </View>
             <View style={styles.contactDetails}>
               <Text style={styles.contactName}>{item.username}</Text>
@@ -129,44 +83,62 @@ export function ContactsPage({ navigation }: any) {
               style={styles.callIconButton}
               onPress={() => startCall(item)}
             >
-              <Ionicons name="call" size={20} color={Theme.colors.accent} />
+              <Ionicons name="call" size={18} color={Theme.colors.accent} />
             </TouchableOpacity>
             <Ionicons name="chevron-forward" size={20} color={Theme.colors.textSecondary} style={styles.chevron} />
           </View>
-        </GlassCard>
+        </NeuCard>
       </TouchableOpacity>
     );
   };
 
+  const HeaderComponent = (
+    <View style={styles.header}>
+      <View style={styles.headerLeft}>
+        <Text style={styles.welcomeText}>Hello,</Text>
+        <Text style={styles.usernameText} numberOfLines={1} ellipsizeMode="tail">
+          {user?.username || 'User'}
+        </Text>
+      </View>
+      <View style={styles.headerRight}>
+        <PulsingDot active={hasIpv6} color={hasIpv6 ? Theme.colors.success : Theme.colors.danger} size={10} pulse={hasIpv6} />
+        <Text style={styles.ipv6Label}>{hasIpv6 ? 'IPv6 Ready' : 'IPv4 Only'}</Text>
+      </View>
+    </View>
+  );
+
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.welcomeText}>Hello,</Text>
-          <Text style={styles.usernameText}>{user?.username || 'User'}</Text>
+    <ScreenLayout header={HeaderComponent} scrollable={false} contentStyle={styles.containerOverride}>
+      <View style={styles.searchRow}>
+        <View style={styles.searchContainer}>
+          <Ionicons name="search" size={18} color={Theme.colors.textSecondary} style={styles.searchIcon} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Filter contacts..."
+            placeholderTextColor={Theme.colors.textSecondary}
+            value={localSearch}
+            onChangeText={setLocalSearch}
+          />
+          {localSearch.length > 0 && (
+            <TouchableOpacity onPress={() => setLocalSearch('')}>
+              <Ionicons name="close-circle" size={18} color={Theme.colors.textSecondary} />
+            </TouchableOpacity>
+          )}
         </View>
-        <View style={styles.peerCountCard}>
-          <Text style={styles.peerCountNum}>
-            {onlineCount}/{contacts?.length || 0}
-          </Text>
-          <Text style={styles.peerCountLabel}>Peers Online</Text>
-        </View>
+        <NeuButton
+          variant={activeFilter !== 'all' || showFilters ? 'primary' : 'secondary'}
+          size="sm"
+          onPress={() => setShowFilters(!showFilters)}
+          leftIcon={<Ionicons name="funnel-outline" size={18} color="#ffffff" />}
+          title=""
+          style={styles.filterToggleBtn}
+        />
       </View>
 
-      <View style={styles.searchContainer}>
-        <Ionicons name="search" size={18} color={Theme.colors.textSecondary} style={styles.searchIcon} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Filter contacts..."
-          placeholderTextColor={Theme.colors.textSecondary}
-          value={localSearch}
-          onChangeText={setLocalSearch}
-        />
-        {localSearch.length > 0 && (
-          <TouchableOpacity onPress={() => setLocalSearch('')}>
-            <Ionicons name="close-circle" size={18} color={Theme.colors.textSecondary} />
-          </TouchableOpacity>
-        )}
+      {(showFilters || activeFilter !== 'all') && <FilterChips />}
+
+      <View style={styles.infoRow}>
+        <Text style={styles.onlineCountText}>{onlineCount} contacts online</Text>
       </View>
 
       <FlatList
@@ -193,14 +165,14 @@ export function ContactsPage({ navigation }: any) {
           ) : null
         }
       />
-    </SafeAreaView>
+    </ScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  containerOverride: {
+    paddingHorizontal: 0,
     flex: 1,
-    backgroundColor: Theme.colors.background,
   },
   header: {
     flexDirection: 'row',
@@ -208,7 +180,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: Theme.spacing.md,
     paddingTop: Theme.spacing.md,
-    marginBottom: Theme.spacing.md,
+    paddingBottom: Theme.spacing.sm,
+  },
+  headerLeft: {
+    flex: 1,
+    marginRight: 16,
+    flexShrink: 1,
   },
   welcomeText: {
     fontSize: 16,
@@ -219,36 +196,42 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: Theme.colors.textPrimary,
   },
-  peerCountCard: {
-    backgroundColor: 'rgba(56, 189, 248, 0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(56, 189, 248, 0.2)',
-    paddingHorizontal: Theme.spacing.md,
-    paddingVertical: Theme.spacing.sm,
-    borderRadius: Theme.roundness.md,
-    alignItems: 'center',
-  },
-  peerCountNum: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: Theme.colors.accent,
-  },
-  peerCountLabel: {
-    fontSize: 10,
-    color: Theme.colors.textSecondary,
-    textTransform: 'uppercase',
-  },
-  searchContainer: {
+  headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(23, 28, 32, 0.5)',
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
     borderWidth: 1,
-    borderColor: Theme.colors.border,
-    borderRadius: Theme.roundness.md,
-    marginHorizontal: Theme.spacing.md,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    paddingHorizontal: Theme.spacing.sm,
+    paddingVertical: Theme.spacing.xs,
+    borderRadius: 4,
+    gap: 8,
+  },
+  ipv6Label: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Theme.colors.textPrimary,
+  },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Theme.spacing.md,
+    marginBottom: Theme.spacing.xs,
+    gap: 8,
+  },
+  searchContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Theme.neu.cardSurface,
+    borderWidth: 1,
+    borderTopColor: Theme.neu.shadowLight,
+    borderLeftColor: 'rgba(255, 255, 255, 0.06)',
+    borderBottomColor: Theme.neu.shadowDark,
+    borderRightColor: 'rgba(0, 0, 0, 0.45)',
+    borderRadius: Theme.neu.cardRadius,
     paddingHorizontal: Theme.spacing.sm,
     height: 40,
-    marginBottom: Theme.spacing.md,
   },
   searchIcon: {
     marginRight: Theme.spacing.xs,
@@ -257,6 +240,23 @@ const styles = StyleSheet.create({
     flex: 1,
     color: Theme.colors.textPrimary,
     fontSize: 14,
+  },
+  filterToggleBtn: {
+    height: 40,
+    width: 40,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  infoRow: {
+    paddingHorizontal: Theme.spacing.md,
+    marginVertical: Theme.spacing.xs,
+  },
+  onlineCountText: {
+    fontSize: 12,
+    color: Theme.colors.textSecondary,
+    fontWeight: '500',
   },
   listContent: {
     paddingHorizontal: Theme.spacing.md,
@@ -273,33 +273,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  avatarWrapper: {
+    position: 'relative',
+  },
   statusIndicatorContainer: {
     position: 'absolute',
     bottom: -2,
-    left: 32,
+    right: -2,
     width: 14,
     height: 14,
     borderRadius: 7,
-    backgroundColor: Theme.colors.surface,
+    backgroundColor: Theme.colors.background,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  statusIndicator: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  pulseContainer: {
-    width: 10,
-    height: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  statusPulse: {
-    position: 'absolute',
-    width: 10,
-    height: 10,
-    borderRadius: 5,
   },
   contactDetails: {
     marginLeft: Theme.spacing.md,
@@ -322,10 +308,12 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(56, 189, 248, 0.1)',
     width: 36,
     height: 36,
-    borderRadius: 18,
+    borderRadius: 4, // blocky icon button
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: Theme.spacing.sm,
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.2)',
   },
   chevron: {
     marginLeft: Theme.spacing.xs,

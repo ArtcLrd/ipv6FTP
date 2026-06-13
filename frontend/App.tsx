@@ -6,6 +6,8 @@ import { initializeSession } from './src/services/authService';
 import { initializeNetworkService } from './src/services/networkService';
 import { useAuthStore } from './src/modules/auth/store';
 
+import { ToastNotification } from './src/components/ToastNotification';
+
 export default function App() {
   const setLoading = useAuthStore((state) => state.setLoading);
 
@@ -26,7 +28,9 @@ export default function App() {
   return (
     <AppProviders>
       <RootNavigator />
+      <ToastNotification />
       <StatusBar style="light" />
     </AppProviders>
   );
 }
+

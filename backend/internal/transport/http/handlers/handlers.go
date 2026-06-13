@@ -264,9 +264,13 @@ func (h *UserHandler) SSEEvents(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
+	// SSE headers — Transfer-Encoding: chunked keeps the HTTP/2 stream alive
+	// through proxies like ngrok that reset idle streams with INTERNAL_ERROR.
+	// X-Accel-Buffering: no disables nginx/proxy buffering.
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Transfer-Encoding", "chunked")
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	eventChan, cleanup := h.broker.Subscribe(claims.Sub)
@@ -278,7 +282,8 @@ func (h *UserHandler) SSEEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	_, _ = fmt.Fprint(w, ": connected\n\n")
 	flusher.Flush()
-	ticker := time.NewTicker(15 * time.Second)
+	// Heartbeat every 20s — well under ngrok's ~30s idle-stream reset threshold.
+	ticker := time.NewTicker(20 * time.Second)
 	defer ticker.Stop()
 	for {
 		select {

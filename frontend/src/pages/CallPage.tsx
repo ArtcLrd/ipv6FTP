@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Platform, PermissionsAndroid, SafeAreaView, Animated } from 'react-native';
+import React, { useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Platform, PermissionsAndroid, Animated } from 'react-native';
 import { useCallStore } from '../modules/call/store';
 import { webrtcManager } from '../modules/call/webrtc';
 import { wsManager } from '../realtime/websocket';
@@ -8,6 +8,7 @@ import { logger } from '../core/logger/logger';
 import { Theme } from '../theme';
 import { Avatar } from '../components/Avatar';
 import { Ionicons } from '@expo/vector-icons';
+import { ScreenLayout } from '../components/ScreenLayout';
 
 function CallGlow({ active }: { active: boolean }) {
   const glow1 = React.useRef(new Animated.Value(0)).current;
@@ -98,6 +99,17 @@ export function CallPage() {
   const { callState, remoteUser } = useCallStore();
 
   useEffect(() => {
+    if (callState !== 'calling') return;
+    const timer = setTimeout(() => {
+      logger.info('Call auto-cancelled: 20s timeout reached');
+      // Notify remote peer before tearing down
+      wsManager.send('call-ended', {});
+      webrtcManager.cleanup();
+    }, 20000);
+    return () => clearTimeout(timer);
+  }, [callState]);
+
+  useEffect(() => {
     async function askMicPermission() {
       try {
         if (Platform.OS === 'android') {
@@ -155,7 +167,7 @@ export function CallPage() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <ScreenLayout scrollable={false} contentStyle={styles.containerOverride}>
       <View style={styles.header}>
         <Ionicons name="shield-checkmark" size={18} color={Theme.colors.accent} style={styles.shieldIcon} />
         <Text style={styles.headerText}>End-to-End Encrypted</Text>
@@ -232,16 +244,16 @@ export function CallPage() {
           )}
         </View>
       </View>
-    </SafeAreaView>
+    </ScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  containerOverride: {
     flex: 1,
-    backgroundColor: Theme.colors.background,
     justifyContent: 'space-between',
-    paddingVertical: Theme.spacing.xl,
+    paddingVertical: Theme.spacing.md,
+    paddingHorizontal: 0,
   },
   header: {
     flexDirection: 'row',

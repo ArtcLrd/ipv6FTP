@@ -14,7 +14,7 @@ import { ContactDetailsPage } from '../pages/ContactDetailsPage';
 import { CallPage } from '../pages/CallPage';
 import { View, ActivityIndicator, Modal } from 'react-native';
 import { Theme } from '../theme';
-import { Ionicons } from '@expo/vector-icons';
+import { TabBar } from '../components/TabBar';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -34,32 +34,10 @@ const appTheme = {
 function TabNavigator() {
   return (
     <Tab.Navigator
-      screenOptions={({ route }) => ({
-        tabBarIcon: ({ focused, color, size }) => {
-          let iconName: React.ComponentProps<typeof Ionicons>['name'];
-          if (route.name === 'Contacts') {
-            iconName = focused ? 'people' : 'people-outline';
-          } else if (route.name === 'Calls') {
-            iconName = focused ? 'call' : 'call-outline';
-          } else if (route.name === 'Add') {
-            iconName = focused ? 'person-add' : 'person-add-outline';
-          } else {
-            iconName = focused ? 'settings' : 'settings-outline';
-          }
-          return <Ionicons name={iconName} size={size} color={color} />;
-        },
-        tabBarActiveTintColor: Theme.colors.accent,
-        tabBarInactiveTintColor: Theme.colors.textSecondary,
-        tabBarStyle: {
-          backgroundColor: Theme.colors.surface,
-          borderTopColor: Theme.colors.border,
-          borderTopWidth: 1,
-          height: 60,
-          paddingBottom: 8,
-          paddingTop: 8,
-        },
+      tabBar={(props) => <TabBar {...props} />}
+      screenOptions={{
         headerShown: false,
-      })}
+      }}
     >
       <Tab.Screen name="Contacts" component={ContactsPage} />
       <Tab.Screen name="Calls" component={CallsPage} />

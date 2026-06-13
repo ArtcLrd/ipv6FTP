@@ -25,7 +25,10 @@ export async function connectSSE(onEvent: (data: any) => void) {
   });
 
   es.addEventListener('error', (error) => {
-    logger.error('SSE Error', error);
+    // Log at debug level — this fires frequently when going through ngrok
+    // (HTTP/2 RST_STREAM INTERNAL_ERROR on idle streams). The signalingService
+    // handles reconnection with exponential backoff.
+    logger.debug('SSE stream error (signalingService will reconnect)', error);
   });
 
   return es;

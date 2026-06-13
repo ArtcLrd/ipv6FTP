@@ -1,16 +1,27 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, SafeAreaView, TouchableOpacity } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, Switch, Platform, TouchableOpacity } from 'react-native';
 import { useAuth, useLogout } from '../modules/auth/hooks';
 import { Theme } from '../theme';
-import { GlassCard } from '../components/GlassCard';
 import { Avatar } from '../components/Avatar';
-import { GlassButton } from '../components/GlassButton';
 import { Ionicons } from '@expo/vector-icons';
 import { ICE_MODE } from '../config/env';
+import { ScreenLayout } from '../components/ScreenLayout';
+import { NeuCard } from '../components/NeuCard';
+import { NeuButton } from '../components/NeuButton';
+import { PulsingDot } from '../components/PulsingDot';
+import { ConfirmModal } from '../components/ConfirmModal';
+import { useNetwork } from '../hooks/useNetwork';
+import { useIpv6Status } from '../hooks/useIpv6Status';
+import { useTurnMode } from '../hooks/useTurnMode';
 
 export function SettingsPage() {
   const { user } = useAuth();
   const logoutMutation = useLogout();
+  const [logoutConfirmVisible, setLogoutConfirmVisible] = useState(false);
+
+  const { type: netType } = useNetwork();
+  const { hasIpv6, loading: loadingIpv6 } = useIpv6Status();
+  const { turnEnabled, setTurnEnabled } = useTurnMode();
 
   const getIceModeDescription = (mode: string) => {
     switch (mode) {
@@ -25,105 +36,143 @@ export function SettingsPage() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogoutConfirm = () => {
+    setLogoutConfirmVisible(false);
     logoutMutation.mutate();
   };
 
+  const HeaderComponent = (
+    <View style={styles.header}>
+      <Text style={styles.title}>Settings</Text>
+    </View>
+  );
+
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContainer}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Settings</Text>
+    <ScreenLayout header={HeaderComponent} scrollable>
+      <NeuCard style={styles.profileCard}>
+        <Avatar username={user?.username || 'User'} size={72} />
+        <Text style={styles.username}>{user?.username || 'User'}</Text>
+        <View style={styles.roleBadge}>
+          <Text style={styles.roleText}>{user?.role || 'Peer User'}</Text>
+        </View>
+      </NeuCard>
+
+      <Text style={styles.sectionTitle}>Network Configuration</Text>
+      <NeuCard style={styles.settingGroup}>
+        {/* ICE Mode */}
+        <View style={styles.settingItem}>
+          <View style={styles.settingItemLeft}>
+            <Ionicons name="git-network-outline" size={20} color={Theme.colors.accent} style={styles.settingIcon} />
+            <View>
+              <Text style={styles.settingLabel}>ICE Mode</Text>
+              <Text style={styles.settingSub}>{getIceModeDescription(ICE_MODE)}</Text>
+            </View>
+          </View>
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>
+              {turnEnabled ? 'TURN' : ICE_MODE.toUpperCase()}
+            </Text>
+          </View>
         </View>
 
-        <GlassCard style={styles.profileCard}>
-          <Avatar username={user?.username || 'User'} size={72} />
-          <Text style={styles.username}>{user?.username || 'User'}</Text>
-          <View style={styles.roleBadge}>
-            <Text style={styles.roleText}>{user?.role || 'Peer User'}</Text>
-          </View>
-        </GlassCard>
+        <View style={styles.settingDivider} />
 
-        <Text style={styles.sectionTitle}>Network Configuration</Text>
-        <GlassCard style={styles.settingGroup}>
-          <View style={styles.settingItem}>
-            <View style={styles.settingItemLeft}>
-              <Ionicons name="git-network-outline" size={20} color={Theme.colors.accent} style={styles.settingIcon} />
-              <View>
-                <Text style={styles.settingLabel}>ICE Mode</Text>
-                <Text style={styles.settingSub}>{getIceModeDescription(ICE_MODE)}</Text>
-              </View>
-            </View>
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>{ICE_MODE.toUpperCase()}</Text>
+        {/* Network Type */}
+        <View style={styles.settingItem}>
+          <View style={styles.settingItemLeft}>
+            <Ionicons name="hardware-chip-outline" size={20} color={Theme.colors.accent} style={styles.settingIcon} />
+            <View style={styles.settingItemDetails}>
+              <Text style={styles.settingLabel}>Network Type</Text>
+              <Text style={styles.settingSub} numberOfLines={1} ellipsizeMode="tail">
+                Type: {String(netType || 'Unknown').toUpperCase()} {loadingIpv6 ? '(Checking...)' : ''}
+              </Text>
             </View>
           </View>
-
-          <View style={styles.settingDivider} />
-
-          <View style={styles.settingItem}>
-            <View style={styles.settingItemLeft}>
-              <Ionicons name="hardware-chip-outline" size={20} color={Theme.colors.accent} style={styles.settingIcon} />
-              <View>
-                <Text style={styles.settingLabel}>Network Type</Text>
-                <Text style={styles.settingSub}>IPv6 Dual Stack Enabled</Text>
-              </View>
-            </View>
-            <View style={styles.activeIndicator} />
+          <View style={styles.indicatorRow}>
+            <PulsingDot
+              active={hasIpv6}
+              color={hasIpv6 ? Theme.colors.success : Theme.colors.danger}
+              size={8}
+              pulse={hasIpv6}
+            />
+            <Text style={styles.indicatorText}>{hasIpv6 ? 'IPv6' : 'IPv4 Only'}</Text>
           </View>
-        </GlassCard>
+        </View>
 
-        <Text style={styles.sectionTitle}>App Details</Text>
-        <GlassCard style={styles.settingGroup}>
-          <View style={styles.settingItem}>
-            <View style={styles.settingItemLeft}>
-              <Ionicons name="information-circle-outline" size={20} color={Theme.colors.textSecondary} style={styles.settingIcon} />
-              <View>
-                <Text style={styles.settingLabel}>Version</Text>
-                <Text style={styles.settingSub}>1.0.0 (Expo SDK 54)</Text>
-              </View>
+        <View style={styles.settingDivider} />
+
+        {/* TURN Mode Toggle */}
+        <View style={styles.settingItem}>
+          <View style={styles.settingItemLeft}>
+            <Ionicons name="swap-horizontal-outline" size={20} color={Theme.colors.accent} style={styles.settingIcon} />
+            <View>
+              <Text style={styles.settingLabel}>TURN Mode</Text>
+              <Text style={styles.settingSub}>Allow relay for IPv4 calls</Text>
             </View>
           </View>
-
-          <View style={styles.settingDivider} />
-
-          <TouchableOpacity style={styles.settingItem} activeOpacity={0.7}>
-            <View style={styles.settingItemLeft}>
-              <Ionicons name="document-text-outline" size={20} color={Theme.colors.textSecondary} style={styles.settingIcon} />
-              <View>
-                <Text style={styles.settingLabel}>Developer Logs</Text>
-                <Text style={styles.settingSub}>View diagnostics and debug logs</Text>
-              </View>
-            </View>
-            <Text style={styles.comingSoonText}>Coming Soon</Text>
-          </TouchableOpacity>
-        </GlassCard>
-
-        <View style={styles.buttonContainer}>
-          <GlassButton
-            title="Log Out"
-            variant="destructive"
-            onPress={handleLogout}
-            loading={logoutMutation.isPending}
+          <Switch
+            value={turnEnabled}
+            onValueChange={setTurnEnabled}
+            trackColor={{ false: 'rgba(255,255,255,0.1)', true: Theme.colors.accent }}
+            thumbColor={Platform.OS === 'ios' ? undefined : '#ffffff'}
           />
         </View>
-      </ScrollView>
-    </SafeAreaView>
+      </NeuCard>
+
+      <Text style={styles.sectionTitle}>App Details</Text>
+      <NeuCard style={styles.settingGroup}>
+        <View style={styles.settingItem}>
+          <View style={styles.settingItemLeft}>
+            <Ionicons name="information-circle-outline" size={20} color={Theme.colors.textSecondary} style={styles.settingIcon} />
+            <View>
+              <Text style={styles.settingLabel}>Version</Text>
+              <Text style={styles.settingSub}>1.0.0 (Expo SDK 54)</Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.settingDivider} />
+
+        <TouchableOpacity style={styles.settingItem} activeOpacity={0.7}>
+          <View style={styles.settingItemLeft}>
+            <Ionicons name="document-text-outline" size={20} color={Theme.colors.textSecondary} style={styles.settingIcon} />
+            <View>
+              <Text style={styles.settingLabel}>Developer Logs</Text>
+              <Text style={styles.settingSub}>View diagnostics and debug logs</Text>
+            </View>
+          </View>
+          <Text style={styles.comingSoonText}>Coming Soon</Text>
+        </TouchableOpacity>
+      </NeuCard>
+
+      <View style={styles.buttonContainer}>
+        <NeuButton
+          title="Log Out"
+          variant="destructive"
+          onPress={() => setLogoutConfirmVisible(true)}
+          loading={logoutMutation.isPending}
+        />
+      </View>
+
+      <ConfirmModal
+        visible={logoutConfirmVisible}
+        title="Log Out"
+        message="You'll be signed out of VoIPv6."
+        confirmLabel="Log Out"
+        confirmVariant="destructive"
+        loading={logoutMutation.isPending}
+        onConfirm={handleLogoutConfirm}
+        onCancel={() => setLogoutConfirmVisible(false)}
+      />
+    </ScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Theme.colors.background,
-  },
-  scrollContainer: {
-    paddingBottom: Theme.spacing.xl,
-  },
   header: {
     paddingHorizontal: Theme.spacing.md,
     paddingTop: Theme.spacing.md,
-    marginBottom: Theme.spacing.md,
+    paddingBottom: Theme.spacing.sm,
   },
   title: {
     fontSize: 24,
@@ -131,7 +180,7 @@ const styles = StyleSheet.create({
     color: Theme.colors.textPrimary,
   },
   profileCard: {
-    marginHorizontal: Theme.spacing.md,
+    marginHorizontal: Theme.spacing.xs,
     padding: Theme.spacing.lg,
     alignItems: 'center',
     marginBottom: Theme.spacing.lg,
@@ -146,7 +195,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
     paddingHorizontal: Theme.spacing.md,
     paddingVertical: 4,
-    borderRadius: Theme.roundness.full,
+    borderRadius: 4, // blocky badge
     marginTop: Theme.spacing.xs,
   },
   roleText: {
@@ -161,11 +210,11 @@ const styles = StyleSheet.create({
     color: Theme.colors.accent,
     textTransform: 'uppercase',
     letterSpacing: 1,
-    marginLeft: Theme.spacing.lg,
+    marginLeft: Theme.spacing.sm,
     marginBottom: Theme.spacing.sm,
   },
   settingGroup: {
-    marginHorizontal: Theme.spacing.md,
+    marginHorizontal: Theme.spacing.xs,
     paddingHorizontal: Theme.spacing.md,
     marginBottom: Theme.spacing.lg,
   },
@@ -178,6 +227,11 @@ const styles = StyleSheet.create({
   settingItemLeft: {
     flexDirection: 'row',
     alignItems: 'center',
+    flex: 1,
+  },
+  settingItemDetails: {
+    flex: 1,
+    marginRight: 8,
   },
   settingIcon: {
     marginRight: Theme.spacing.md,
@@ -200,18 +254,22 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(56, 189, 248, 0.1)',
     paddingHorizontal: Theme.spacing.sm,
     paddingVertical: 4,
-    borderRadius: Theme.roundness.sm,
+    borderRadius: 4, // blocky badge
   },
   badgeText: {
     color: Theme.colors.accent,
     fontSize: 10,
     fontWeight: 'bold',
   },
-  activeIndicator: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: Theme.colors.success,
+  indicatorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  indicatorText: {
+    fontSize: 12,
+    color: Theme.colors.textSecondary,
+    fontWeight: '600',
   },
   comingSoonText: {
     fontSize: 12,
@@ -219,7 +277,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   buttonContainer: {
-    marginHorizontal: Theme.spacing.md,
+    marginHorizontal: Theme.spacing.xs,
     marginTop: Theme.spacing.md,
   },
 });

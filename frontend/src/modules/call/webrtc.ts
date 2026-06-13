@@ -5,6 +5,8 @@ import type { Contact } from '../contacts/types';
 import { createRoom, getTurnServers, sendRoomInvite } from './api';
 import { ICE_MODE } from '../../config/env';
 import { lookupPeer } from '../phonebook/api';
+import { useTurnStore } from '../../hooks/useTurnMode';
+import { ToastNotification } from '../../components/ToastNotification';
 
 // Safely import WebRTC components for Expo Go compatibility
 let RTCPeerConnection: any;
@@ -251,6 +253,13 @@ class WebRTCManager {
         useCallStore.getState().setCallState('connected');
       }
       if (state === 'failed' || state === 'closed') {
+        const { turnEnabled } = useTurnStore.getState();
+        if (!turnEnabled) {
+          ToastNotification.show(
+            'Call cancelled — TURN is disabled. Enable TURN in Settings for IPv4 networks.',
+            4000
+          );
+        }
         this.cleanup();
       }
     };
@@ -262,6 +271,13 @@ class WebRTCManager {
         useCallStore.getState().setCallState('connected');
       }
       if (state === 'failed') {
+        const { turnEnabled } = useTurnStore.getState();
+        if (!turnEnabled) {
+          ToastNotification.show(
+            'Call cancelled — TURN is disabled. Enable TURN in Settings for IPv4 networks.',
+            4000
+          );
+        }
         this.cleanup();
       }
     };

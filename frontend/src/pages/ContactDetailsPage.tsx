@@ -1,140 +1,146 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, SafeAreaView, TouchableOpacity, Alert, Platform } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, Platform } from 'react-native';
 import { useDeleteContact } from '../modules/contacts/hooks';
 import { webrtcManager } from '../modules/call/webrtc';
 import { Theme } from '../theme';
-import { GlassCard } from '../components/GlassCard';
 import { Avatar } from '../components/Avatar';
-import { GlassButton } from '../components/GlassButton';
 import { Ionicons } from '@expo/vector-icons';
+import { ScreenLayout } from '../components/ScreenLayout';
+import { NeuCard } from '../components/NeuCard';
+import { NeuButton } from '../components/NeuButton';
+import { PulsingDot } from '../components/PulsingDot';
+import { ConfirmModal } from '../components/ConfirmModal';
 
 export function ContactDetailsPage({ route, navigation }: any) {
   const { contact } = route.params;
   const deleteContactMutation = useDeleteContact();
+  const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
 
   const handleStartCall = () => {
     webrtcManager.startCall(contact);
   };
 
-  const handleDelete = () => {
-    Alert.alert(
-      'Remove Contact',
-      `Are you sure you want to remove ${contact.username} from your contacts?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: () => {
-            deleteContactMutation.mutate(contact.id, {
-              onSuccess: () => {
-                navigation.goBack();
-              },
-            });
-          },
-        },
-      ]
-    );
+  const handleDeleteConfirm = () => {
+    setDeleteConfirmVisible(false);
+    deleteContactMutation.mutate(contact.id, {
+      onSuccess: () => {
+        navigation.goBack();
+      },
+    });
   };
 
   const isOnline = contact.status === 'online';
 
+  const HeaderComponent = (
+    <View style={styles.header}>
+      <NeuButton
+        variant="secondary"
+        size="sm"
+        onPress={() => navigation.goBack()}
+        leftIcon={<Ionicons name="arrow-back" size={20} color={Theme.colors.textPrimary} />}
+        title=""
+        style={styles.backButton}
+      />
+      <Text style={styles.title}>Peer Profile</Text>
+      <View style={styles.placeholderButton} />
+    </View>
+  );
+
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContainer}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color={Theme.colors.textPrimary} />
-          </TouchableOpacity>
-          <Text style={styles.title}>Peer Profile</Text>
-          <View style={styles.placeholderButton} />
-        </View>
-
-        <GlassCard style={styles.profileCard}>
-          <Avatar username={contact.username} size={96} />
-          <Text style={styles.username}>{contact.username}</Text>
-          <View style={styles.statusRow}>
-            <View
-              style={[
-                styles.statusIndicator,
-                { backgroundColor: isOnline ? Theme.colors.success : Theme.colors.textSecondary },
-              ]}
-            />
-            <Text style={styles.statusText}>{isOnline ? 'Online' : 'Offline'}</Text>
-          </View>
-        </GlassCard>
-
-        <View style={styles.actionRow}>
-          <TouchableOpacity style={styles.actionButton} onPress={handleStartCall} activeOpacity={0.7}>
-            <Ionicons name="call" size={24} color={Theme.colors.accent} />
-            <Text style={styles.actionLabel}>Audio Call</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={[styles.actionButton, styles.actionButtonDisabled]} disabled activeOpacity={0.7}>
-            <Ionicons name="videocam" size={24} color={Theme.colors.textSecondary} />
-            <Text style={[styles.actionLabel, styles.actionLabelDisabled]}>Video Call</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={[styles.actionButton, styles.actionButtonDisabled]} disabled activeOpacity={0.7}>
-            <Ionicons name="chatbubble" size={24} color={Theme.colors.textSecondary} />
-            <Text style={[styles.actionLabel, styles.actionLabelDisabled]}>Message</Text>
-          </TouchableOpacity>
-        </View>
-
-        <Text style={styles.sectionTitle}>Network Details</Text>
-        <GlassCard style={styles.cardGroup}>
-          <View style={styles.detailItem}>
-            <Text style={styles.detailLabel}>Peer ID</Text>
-            <Text style={styles.detailValue} numberOfLines={1}>{contact.id}</Text>
-          </View>
-
-          <View style={styles.detailDivider} />
-
-          <View style={styles.detailItem}>
-            <Text style={styles.detailLabel}>IP Address</Text>
-            <Text style={styles.detailValue}>
-              {contact.ip_addr || 'Unavailable (Offline)'}
-            </Text>
-          </View>
-        </GlassCard>
-
-        <Text style={styles.sectionTitle}>Activity</Text>
-        <GlassCard style={styles.comingSoonCard}>
-          <Ionicons name="time-outline" size={24} color={Theme.colors.textSecondary} />
-          <Text style={styles.comingSoonText}>Recent call diagnostics will appear here.</Text>
-        </GlassCard>
-
-        <View style={styles.buttonContainer}>
-          <GlassButton
-            title="Remove Contact"
-            variant="destructive"
-            onPress={handleDelete}
-            loading={deleteContactMutation.isPending}
+    <ScreenLayout header={HeaderComponent} scrollable>
+      <NeuCard style={styles.profileCard}>
+        <Avatar username={contact.username} size={96} />
+        <Text style={styles.username}>{contact.username}</Text>
+        <View style={styles.statusRow}>
+          <PulsingDot
+            active={isOnline}
+            color={isOnline ? Theme.colors.success : Theme.colors.textSecondary}
+            size={10}
+            pulse={isOnline}
           />
+          <Text style={styles.statusText}>{isOnline ? 'Online' : 'Offline'}</Text>
         </View>
-      </ScrollView>
-    </SafeAreaView>
+      </NeuCard>
+
+      <View style={styles.actionRow}>
+        <NeuCard pressable onPress={handleStartCall} style={styles.actionCard}>
+          <Ionicons name="call" size={24} color={Theme.colors.accent} />
+          <Text style={styles.actionLabel}>Audio Call</Text>
+        </NeuCard>
+
+        <NeuCard style={[styles.actionCard, styles.actionCardDisabled]}>
+          <Ionicons name="videocam" size={24} color={Theme.colors.textSecondary} />
+          <Text style={[styles.actionLabel, styles.actionLabelDisabled]}>Video Call</Text>
+        </NeuCard>
+
+        <NeuCard style={[styles.actionCard, styles.actionCardDisabled]}>
+          <Ionicons name="chatbubble" size={24} color={Theme.colors.textSecondary} />
+          <Text style={[styles.actionLabel, styles.actionLabelDisabled]}>Message</Text>
+        </NeuCard>
+      </View>
+
+      <Text style={styles.sectionTitle}>Network Details</Text>
+      <NeuCard style={styles.cardGroup}>
+        <View style={styles.detailItem}>
+          <Text style={styles.detailLabel}>Peer ID</Text>
+          <Text style={styles.detailValue} numberOfLines={1}>{contact.id}</Text>
+        </View>
+
+        <View style={styles.detailDivider} />
+
+        <View style={styles.detailItem}>
+          <Text style={styles.detailLabel}>IP Address</Text>
+          <Text style={styles.detailValue}>
+            {contact.ip_addr || 'Unavailable (Offline)'}
+          </Text>
+        </View>
+      </NeuCard>
+
+      <Text style={styles.sectionTitle}>Activity</Text>
+      <NeuCard style={styles.comingSoonCard}>
+        <Ionicons name="time-outline" size={24} color={Theme.colors.textSecondary} />
+        <Text style={styles.comingSoonText}>Recent call diagnostics will appear here.</Text>
+      </NeuCard>
+
+      <View style={styles.buttonContainer}>
+        <NeuButton
+          title="Remove Contact"
+          variant="destructive"
+          onPress={() => setDeleteConfirmVisible(true)}
+          loading={deleteContactMutation.isPending}
+        />
+      </View>
+
+      <ConfirmModal
+        visible={deleteConfirmVisible}
+        title="Remove Contact"
+        message={`Are you sure you want to remove ${contact.username} from your contacts?`}
+        confirmLabel="Remove"
+        confirmVariant="destructive"
+        loading={deleteContactMutation.isPending}
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setDeleteConfirmVisible(false)}
+      />
+    </ScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Theme.colors.background,
-  },
-  scrollContainer: {
-    paddingBottom: Theme.spacing.xl,
-  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: Theme.spacing.md,
     paddingTop: Theme.spacing.md,
-    marginBottom: Theme.spacing.md,
+    paddingBottom: Theme.spacing.sm,
   },
   backButton: {
-    padding: 4,
+    width: 40,
+    height: 40,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   title: {
     fontSize: 20,
@@ -142,10 +148,10 @@ const styles = StyleSheet.create({
     color: Theme.colors.textPrimary,
   },
   placeholderButton: {
-    width: 32,
+    width: 40,
   },
   profileCard: {
-    marginHorizontal: Theme.spacing.md,
+    marginHorizontal: Theme.spacing.xs,
     padding: Theme.spacing.xl,
     alignItems: 'center',
     marginBottom: Theme.spacing.lg,
@@ -160,12 +166,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: Theme.spacing.sm,
-  },
-  statusIndicator: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    marginRight: 6,
+    gap: 8,
   },
   statusText: {
     fontSize: 14,
@@ -174,21 +175,18 @@ const styles = StyleSheet.create({
   },
   actionRow: {
     flexDirection: 'row',
-    justifyContent: 'space-evenly',
-    marginHorizontal: Theme.spacing.md,
+    justifyContent: 'space-between',
+    marginHorizontal: Theme.spacing.xs,
     marginBottom: Theme.spacing.lg,
+    gap: 8,
   },
-  actionButton: {
+  actionCard: {
     flex: 1,
-    backgroundColor: 'rgba(23, 28, 32, 0.5)',
-    borderWidth: 1,
-    borderColor: Theme.colors.border,
-    borderRadius: Theme.roundness.md,
     paddingVertical: Theme.spacing.md,
     alignItems: 'center',
-    marginHorizontal: 4,
+    justifyContent: 'center',
   },
-  actionButtonDisabled: {
+  actionCardDisabled: {
     opacity: 0.4,
   },
   actionLabel: {
@@ -206,11 +204,11 @@ const styles = StyleSheet.create({
     color: Theme.colors.accent,
     textTransform: 'uppercase',
     letterSpacing: 1,
-    marginLeft: Theme.spacing.lg,
+    marginLeft: Theme.spacing.sm,
     marginBottom: Theme.spacing.sm,
   },
   cardGroup: {
-    marginHorizontal: Theme.spacing.md,
+    marginHorizontal: Theme.spacing.xs,
     paddingHorizontal: Theme.spacing.md,
     marginBottom: Theme.spacing.lg,
   },
@@ -238,19 +236,20 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.colors.border,
   },
   comingSoonCard: {
-    marginHorizontal: Theme.spacing.md,
+    marginHorizontal: Theme.spacing.xs,
     padding: Theme.spacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: Theme.spacing.lg,
+    gap: 12,
   },
   comingSoonText: {
     fontSize: 14,
     color: Theme.colors.textSecondary,
-    marginLeft: Theme.spacing.md,
+    flex: 1,
   },
   buttonContainer: {
-    marginHorizontal: Theme.spacing.md,
+    marginHorizontal: Theme.spacing.xs,
     marginTop: Theme.spacing.md,
   },
 });

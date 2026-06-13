@@ -60,4 +60,14 @@ export const Theme = {
     shadowRadius: 32,
     elevation: 12,
   },
+  neu: {
+    cardRadius: 4,
+    buttonRadius: 4,
+    shadowLight: 'rgba(255, 255, 255, 0.09)',
+    shadowDark:  'rgba(0, 0, 0, 0.55)',
+    gradientStart: '#071013',
+    gradientEnd:   '#001828',
+    cardSurface:   'rgba(0, 24, 40, 0.85)',
+  },
 };
+

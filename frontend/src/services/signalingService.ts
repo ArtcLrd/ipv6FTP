@@ -9,6 +9,11 @@ let sseConnection: any = null;
 let unsubscribers: Array<() => void> = [];
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectDelay = 1000;
+let stabilityTimer: ReturnType<typeof setTimeout> | null = null;
+
+// How long (ms) a connection must stay open before we consider it "stable"
+// and reset the backoff. Must be > ngrok's ~30s idle-reset window.
+const STABILITY_THRESHOLD_MS = 35_000;
 
 // Buffer to hold an offer that arrived before the listener was ready
 let pendingOffer: { from: string; offer: any } | null = null;
@@ -41,13 +46,18 @@ function clearReconnectTimer() {
 
 function scheduleSSEReconnect() {
   if (!isInitialized || reconnectTimer) return;
-
+  // Cancel any pending stability reset — the connection didn't survive.
+  if (stabilityTimer) {
+    clearTimeout(stabilityTimer);
+    stabilityTimer = null;
+  }
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
     sseConnection?.close?.();
     sseConnection = null;
     connectSignalingEvents();
-    reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+    // Back off exponentially (1s → 2s → 4s … capped at 30s)
+    reconnectDelay = Math.min(reconnectDelay * 2, 30_000);
   }, reconnectDelay);
 }
 
@@ -68,10 +78,16 @@ function connectSignalingEvents() {
     if (!isInitialized || !connection) return;
 
     sseConnection = connection;
-    reconnectDelay = 1000;
     connection.addEventListener?.('open', () => {
-      reconnectDelay = 1000;
       logger.info('SSE connected');
+      // Only reset the backoff after the connection has been stable for
+      // longer than ngrok's idle-reset window (~30s). If ngrok kills it
+      // before STABILITY_THRESHOLD_MS, the backoff keeps growing.
+      if (stabilityTimer) clearTimeout(stabilityTimer);
+      stabilityTimer = setTimeout(() => {
+        reconnectDelay = 1000;
+        stabilityTimer = null;
+      }, STABILITY_THRESHOLD_MS);
     });
     connection.addEventListener?.('error', (error: any) => {
       logger.warn('SSE connection error, scheduling reconnect', error);
@@ -128,6 +144,10 @@ export function consumePendingOffer() {
 
 export function terminateSignaling() {
   clearReconnectTimer();
+  if (stabilityTimer) {
+    clearTimeout(stabilityTimer);
+    stabilityTimer = null;
+  }
   sseConnection?.close?.();
   sseConnection = null;
   unsubscribers.forEach((unsubscribe) => unsubscribe());
