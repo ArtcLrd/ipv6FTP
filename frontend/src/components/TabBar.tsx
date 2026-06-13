@@ -9,6 +9,8 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { Theme } from "../theme";
 
+const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
+
 // Individual tab item — hooks must be at component top level, not inside .map()
 function TabItem({
   route,
@@ -23,15 +25,15 @@ function TabItem({
   options: any;
   navigation: any;
 }) {
-  // Unselected = 1.0 (flat/neutral). Selected = 0.95 (slightly sunken inward)
-  const scaleAnim = useRef(new Animated.Value(isFocused ? 0.95 : 1)).current;
+  // Unselected = 1.0 (flat/neutral). Selected = 1.1 (pops out)
+  const scaleAnim = useRef(new Animated.Value(isFocused ? 1.1 : 1)).current;
 
-  // Tight spring for focus state — snaps in ~150ms
+  // Tight spring for focus state
   useEffect(() => {
     Animated.spring(scaleAnim, {
-      toValue: isFocused ? 0.95 : 1,
-      friction: 8,
-      tension: 120,
+      toValue: isFocused ? 1.1 : 1,
+      friction: 6,
+      tension: 100,
       useNativeDriver: true,
     }).start();
   }, [isFocused]);
@@ -54,18 +56,18 @@ function TabItem({
       // Navigate immediately — don't block on animation
       navigation.navigate({ name: route.name, merge: true });
 
-      // Quick tap feedback: compress → settle at sunken position
+      // Quick tap feedback: compress slightly → settle at popped position
       Animated.sequence([
         Animated.spring(scaleAnim, {
-          toValue: 0.88,
+          toValue: 0.95,
           friction: 10,
           tension: 200,
           useNativeDriver: true,
         }),
         Animated.spring(scaleAnim, {
-          toValue: 0.95,
-          friction: 8,
-          tension: 120,
+          toValue: 1.1,
+          friction: 6,
+          tension: 100,
           useNativeDriver: true,
         }),
       ]).start();
@@ -79,19 +81,19 @@ function TabItem({
     });
   };
 
-  let iconName: any = "square";
+  let iconName: any = "square-outline";
   if (route.name === "Contacts") {
-    iconName = isFocused ? "people" : "people-outline";
+    iconName = "people-outline";
   } else if (route.name === "Calls") {
-    iconName = isFocused ? "call" : "call-outline";
+    iconName = "call-outline";
   } else if (route.name === "Add") {
-    iconName = isFocused ? "person-add" : "person-add-outline";
+    iconName = "person-add-outline";
   } else if (route.name === "Settings") {
-    iconName = isFocused ? "settings" : "settings-outline";
+    iconName = "settings-outline";
   }
 
   return (
-    <TouchableOpacity
+    <AnimatedTouchableOpacity
       key={route.key}
       accessibilityRole="button"
       accessibilityState={isFocused ? { selected: true } : {}}
@@ -100,27 +102,20 @@ function TabItem({
       onPress={onPress}
       onLongPress={onLongPress}
       activeOpacity={1}
-      style={[styles.tabCell, isFocused && styles.tabCellPressed]}
+      style={[
+        styles.tabCell, 
+        isFocused ? styles.tabCellPressed : styles.tabCellInactive,
+        { 
+          transform: [{ scale: scaleAnim }], 
+          zIndex: isFocused ? 1 : 0 
+        }
+      ]}
     >
-      {/* Neumorphic pit effect — only rendered when focused */}
-      {isFocused && (
-        <>
-          {/* Deep shadow layer: darkens the pit */}
-          <View style={styles.pitBase} />
-          {/* Inner top shadow: dark edge at top-left (light source = bottom-right for pit) */}
-          <View style={styles.pitShadowTop} />
-          {/* Inner bottom highlight: faint light leak at bottom-right */}
-          <View style={styles.pitHighlightBottom} />
-        </>
-      )}
-
-      <Animated.View
-        style={[styles.tabContent, { transform: [{ scale: scaleAnim }] }]}
-      >
+      <View style={styles.tabContent}>
         <Ionicons
           name={iconName}
           size={24}
-          color={isFocused ? Theme.colors.accent : Theme.colors.textSecondary}
+          color={isFocused ? "#ffffff" : Theme.colors.textSecondary}
           style={isFocused ? styles.glowingIcon : undefined}
         />
         <Text
@@ -131,8 +126,8 @@ function TabItem({
         >
           {label}
         </Text>
-      </Animated.View>
-    </TouchableOpacity>
+      </View>
+    </AnimatedTouchableOpacity>
   );
 }
 
@@ -167,79 +162,50 @@ const styles = StyleSheet.create({
   tabBarOuter: {
     // iOS shadow — large upward cast to feel like a raised physical platform
     shadowColor: "#000000",
-    shadowOffset: { width: 0, height: -8 },
-    shadowOpacity: 0.7,
+    shadowOffset: { width: 0, height: -12 },
+    shadowOpacity: 0.8,
     shadowRadius: 20,
     // Android: elevation gives the raised platform look
     elevation: 24,
     backgroundColor: "transparent",
   },
   // Inner bar: the neumorphic surface with raised border treatment
-  // Matches NeuCard convention — light top/left borders = surface faces the light source = appears raised
   tabBar: {
     flexDirection: "row",
-    height: 68,
-    // Slightly lighter than the screen background so the bar reads as a raised slab
-    backgroundColor: "#001f35", // ~10% lighter than inkBlack2 (#001828)
-
-    // ── Neumorphic raised surface borders (same system as NeuCard) ───────────
-    // Top edge: bright highlight — light hits the top of the raised platform
-    borderTopWidth: 1.5,
-    borderTopColor: "rgba(255, 255, 255, 0.12)", // matches Theme.neu.shadowLight-ish
-    // Bottom edge: invisible (platform sits flush on screen floor)
+    height: 72,
+    backgroundColor: "transparent", // transparent background
+    borderTopWidth: 0,
     borderBottomWidth: 0,
-    // Left/right: slight light catch
-    borderLeftWidth: 1,
-    borderLeftColor: "rgba(255, 255, 255, 0.06)",
-    borderRightWidth: 1,
-    borderRightColor: "rgba(0, 0, 0, 0.4)",
+    borderLeftWidth: 0,
+    borderRightWidth: 0,
+    paddingTop: 0,
+    paddingHorizontal: 4,
+    paddingBottom: 12, // breathing room at the bottom for grid row
+    gap: 2, // reduced gap between cells to stick together
   },
 
-  // ── Tab cell ─────────────────────────────────────────────────────────────
+  // ── Tab cell (Chocolate bar style grid cells) ────────────────────────
   tabCell: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
     height: "100%",
-    overflow: "hidden",
+    borderRadius: 8,
+    // Add border to define the grid cells (groove)
+    borderWidth: 1,
+    borderColor: "rgba(0, 0, 0, 0.4)",
   },
-  // When pressed: clip everything, the pit layers fill this cell
+  tabCellInactive: {
+    backgroundColor: "rgba(0, 24, 40, 0.4)", // darker inset for inactive
+    borderTopColor: "rgba(255, 255, 255, 0.05)",
+    borderLeftColor: "rgba(255, 255, 255, 0.05)",
+    opacity: 0.85, // little dimmed
+  },
   tabCellPressed: {
-    // No extra style needed — pit layers are absoluteFill inside
-  },
-
-  // ── Neumorphic Pit Layers (stacked absolute fills) ───────────────────────
-  // Layer 1 — pit base: slightly darker than bar surface but with a blue tint
-  // so the dark top/left shadow borders have clear contrast to pop against
-  pitBase: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0, 20, 40, 0.8)", // blue-tinted pit floor — lighter than black so edges contrast
-  },
-  // Layer 2 — top/left dark shadow: simulates a deep overhang casting shadow
-  // into the pit (reversed from NeuCard — dark top = concave, not convex)
-  pitShadowTop: {
-    ...StyleSheet.absoluteFillObject,
-    // Only show the top and left shadow edges
-    borderTopWidth: 3,
-    borderLeftWidth: 2,
-    borderTopColor: "rgba(0, 0, 0, 0.80)", // heavy dark edge at top
-    borderLeftColor: "rgba(0, 0, 0, 0.60)", // dark edge left
-    borderBottomWidth: 0,
-    borderRightWidth: 0,
-    borderBottomColor: "transparent",
-    borderRightColor: "transparent",
-  },
-  // Layer 3 — bottom/right light leak: opposite edge gets faint ambient bounce
-  pitHighlightBottom: {
-    ...StyleSheet.absoluteFillObject,
-    borderBottomWidth: 2,
-    borderRightWidth: 1,
-    borderBottomColor: "rgba(255, 255, 255, 0.10)", // faint light leak bottom
-    borderRightColor: "rgba(255, 255, 255, 0.06)", // faint light leak right
-    borderTopWidth: 0,
-    borderLeftWidth: 0,
-    borderTopColor: "transparent",
-    borderLeftColor: "transparent",
+    backgroundColor: "rgba(0, 30, 50, 0.8)", // slightly lighter convex pop out
+    borderTopColor: "rgba(255, 255, 255, 0.15)",
+    borderLeftColor: "rgba(255, 255, 255, 0.10)",
+    borderColor: "rgba(0, 0, 0, 0.6)",
   },
 
   // ── Icon + label content ──────────────────────────────────────────────────
@@ -260,10 +226,10 @@ const styles = StyleSheet.create({
   tabLabelInactive: {
     color: Theme.colors.textSecondary,
   },
-  // Strong blue glow on selected icon stroke (full opacity, wide radius)
+  // Strong white glow on selected icon stroke (full opacity, tight radius)
   glowingIcon: {
-    textShadowColor: "rgba(1, 83, 141, 1.0)",
+    textShadowColor: "rgba(255, 255, 255, 1.0)",
     textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 20,
+    textShadowRadius: 4,
   },
 });
