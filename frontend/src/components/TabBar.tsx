@@ -7,6 +7,7 @@ import {
   Text,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Theme } from "../theme";
 
 const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
@@ -132,9 +133,11 @@ function TabItem({
 }
 
 export function TabBar({ state, descriptors, navigation }: any) {
+  const insets = useSafeAreaInsets();
+
   return (
     // Outer wrapper provides the raised neu elevation + drop shadow
-    <View style={styles.tabBarOuter}>
+    <View style={[styles.tabBarOuter, { paddingBottom: Math.max(insets.bottom, 10) }]}>
       {/* The actual bar surface — raised neumorphic platform */}
       <View style={styles.tabBar}>
         {state.routes.map((route: any, index: number) => {
