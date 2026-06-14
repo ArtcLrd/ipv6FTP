@@ -4,7 +4,6 @@ import {
   Platform, PermissionsAndroid, Animated, PanResponder, Dimensions,
   TouchableWithoutFeedback
 } from 'react-native';
-import { BlurView } from 'expo-blur';
 import { useCallStore } from '../modules/call/store';
 import { webrtcManager } from '../modules/call/webrtc';
 import { wsManager } from '../realtime/websocket';
@@ -99,7 +98,7 @@ function DynamicIsland({ remoteUser, callState }: { remoteUser: string, callStat
     <TouchableWithoutFeedback onPress={toggle}>
       <Animated.View style={[styles.islandOuter, { width, height, borderRadius }]}>
         <View style={styles.islandInnerWrapper}>
-          <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFill} />
+          <View style={[StyleSheet.absoluteFill, styles.glassFallback]} />
           <View style={[StyleSheet.absoluteFill, styles.islandGlassOverlay]} />
           
           <Animated.View style={[styles.islandCollapsed, { opacity: collapsedOpacity }]} pointerEvents={expanded ? 'none' : 'auto'}>
@@ -134,7 +133,7 @@ function NeumorphicAvatar({ username }: { username: string }) {
 
   return (
     <View style={styles.avatarOuter}>
-      <BlurView intensity={20} tint="dark" style={[StyleSheet.absoluteFill, { borderRadius: 70 }]} />
+      <View style={[StyleSheet.absoluteFill, styles.glassFallback, { borderRadius: 70 }]} />
       <View style={styles.avatarInner}>
         <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.start, opacity: 0.4, borderRadius: 60 }]} />
         <Text style={styles.avatarInitials}>{initials}</Text>
@@ -167,7 +166,7 @@ function ControlButton({ icon, active, onPress, isDanger = false, isSuccess = fa
       ]}>
         {/* We use tint="dark" exclusively to prevent the Android light blur white box glitch */}
         <View style={[StyleSheet.absoluteFill, { borderRadius: size / 2, overflow: 'hidden' }]}>
-          {!(isDanger || isSuccess) && <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFill} />}
+          {!(isDanger || isSuccess) && <View style={[StyleSheet.absoluteFill, styles.glassFallback]} />}
           <View style={[
             styles.controlBtnInner, 
             { 
@@ -226,7 +225,7 @@ function BottomDrawer({ callState, micMuted, setMicMuted, speakerOn, setSpeakerO
 
   return (
     <Animated.View style={[styles.drawerOuter, { transform: [{ translateY }] }]} {...panResponder.panHandlers}>
-      <BlurView intensity={40} tint="dark" style={[StyleSheet.absoluteFill, { borderTopLeftRadius: 32, borderTopRightRadius: 32 }]} />
+      <View style={[StyleSheet.absoluteFill, styles.glassFallback, { borderTopLeftRadius: 32, borderTopRightRadius: 32 }]} />
       <View style={[StyleSheet.absoluteFill, styles.drawerOverlay, { borderTopLeftRadius: 32, borderTopRightRadius: 32 }]} />
       <View style={[StyleSheet.absoluteFill, styles.drawerBorder, { borderTopLeftRadius: 32, borderTopRightRadius: 32 }]} pointerEvents="none" />
 
@@ -364,7 +363,7 @@ export function CallPage() {
 
           <View style={styles.statusCapsuleOuter}>
             <View style={styles.statusCapsuleInner}>
-              <BlurView intensity={20} tint="dark" style={StyleSheet.absoluteFill} />
+              <View style={[StyleSheet.absoluteFill, styles.glassFallback]} />
               <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0, 24, 40, 0.4)' }]} />
               <Text style={styles.statusText}>{getStatusText()}</Text>
               {isConnecting && <ActivityIndicator size="small" color={Theme.colors.accent} style={{ marginLeft: 8 }} />}
@@ -393,6 +392,9 @@ const styles = StyleSheet.create({
     paddingBottom: 260, // accommodate the drawer
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  glassFallback: {
+    backgroundColor: 'rgba(7, 16, 19, 0.24)',
   },
   
   // ── Top Section ────────────────────────────────────────────────────────────

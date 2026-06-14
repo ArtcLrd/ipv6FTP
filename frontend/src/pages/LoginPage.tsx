@@ -11,7 +11,6 @@ import {
   ActivityIndicator,
   Dimensions,
 } from "react-native";
-import { BlurView } from "expo-blur";
 import { useLogin } from "../modules/auth/hooks";
 import { useCheckUsername } from "../modules/auth/hooks";
 import { getApiErrorMessage } from "../core/api/errors";
@@ -332,7 +331,6 @@ export function LoginPage({ navigation }: any) {
               <Animated.View
                 style={[styles.cardWrapper, { borderColor: cardBorderColor }]}
               >
-                {/* Absolute BlurView for proper Android rendering */}
                 <View
                   style={[
                     StyleSheet.absoluteFill,
@@ -340,11 +338,7 @@ export function LoginPage({ navigation }: any) {
                     { borderRadius: 22 },
                   ]}
                 />
-                <BlurView
-                  intensity={30}
-                  tint="dark"
-                  style={[StyleSheet.absoluteFill, { borderRadius: 22 }]}
-                />
+                <View style={[StyleSheet.absoluteFill, styles.cardGlassFallback, { borderRadius: 22 }]} />
 
                 <View style={styles.cardInner}>
                   {/* ── USERNAME STEP ─────────────────────────────────────────── */}
@@ -574,6 +568,9 @@ const styles = StyleSheet.create({
   cardBgOverlay: {
     // Add glass background color overlay for visibility
     backgroundColor: "rgba(0, 24, 40, 0.60)",
+  },
+  cardGlassFallback: {
+    backgroundColor: "rgba(7, 16, 19, 0.22)",
   },
   cardInner: {
     flex: 1,

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { CallState } from './types';
-import { MediaStream } from 'react-native-webrtc';
+import type { MediaStream } from 'react-native-webrtc';
 
 interface CallStore {
   callState: CallState;

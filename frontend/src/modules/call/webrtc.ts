@@ -13,17 +13,23 @@ let RTCPeerConnection: any;
 let RTCIceCandidate: any;
 let RTCSessionDescription: any;
 let mediaDevices: any;
-let MediaStream: any;
 
-try {
-  const WebRTC = require('react-native-webrtc');
-  RTCPeerConnection = WebRTC.RTCPeerConnection;
-  RTCIceCandidate = WebRTC.RTCIceCandidate;
-  RTCSessionDescription = WebRTC.RTCSessionDescription;
-  mediaDevices = WebRTC.mediaDevices;
-  MediaStream = WebRTC.MediaStream;
-} catch (e) {
-  logger.warn('WebRTC native module not found. Calling features will be disabled in this environment.');
+function ensureWebRTC() {
+  if (RTCPeerConnection && RTCIceCandidate && RTCSessionDescription && mediaDevices) {
+    return true;
+  }
+
+  try {
+    const WebRTC = require('react-native-webrtc');
+    RTCPeerConnection = WebRTC.RTCPeerConnection;
+    RTCIceCandidate = WebRTC.RTCIceCandidate;
+    RTCSessionDescription = WebRTC.RTCSessionDescription;
+    mediaDevices = WebRTC.mediaDevices;
+    return Boolean(RTCPeerConnection && RTCIceCandidate && RTCSessionDescription && mediaDevices);
+  } catch (e) {
+    logger.warn('WebRTC native module not available. Calling features are disabled.', e);
+    return false;
+  }
 }
 
 const fallbackIceServers = [
@@ -41,6 +47,9 @@ class WebRTCManager {
 
   private async createPeerConnection() {
     this.localCandidateVersions.clear();
+    if (!ensureWebRTC()) {
+      throw new Error('WebRTC native module is not available');
+    }
 
     if (ICE_MODE === 'ipv6-direct') {
       logger.info('Creating peer connection in IPv6 direct mode');

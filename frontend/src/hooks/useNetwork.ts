@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { networkManager } from '../core/network/netinfo';
-import { NetInfoState } from '@react-native-community/netinfo';
+import type { NetInfoState } from '@react-native-community/netinfo';
 
 export function useNetwork() {
   const [state, setState] = useState<NetInfoState | null>(networkManager.getState());

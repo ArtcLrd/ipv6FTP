@@ -12,9 +12,21 @@ import { PulsingDot } from '../components/PulsingDot';
 import { ConfirmModal } from '../components/ConfirmModal';
 
 export function ContactDetailsPage({ route, navigation }: any) {
-  const { contact } = route.params;
+  const contact = route?.params?.contact;
   const deleteContactMutation = useDeleteContact();
   const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
+
+  if (!contact) {
+    return (
+      <ScreenLayout scrollable={false}>
+        <View style={styles.missingState}>
+          <Ionicons name="alert-circle-outline" size={40} color={Theme.colors.textSecondary} />
+          <Text style={styles.comingSoonText}>Contact details are unavailable.</Text>
+          <NeuButton title="Go Back" variant="secondary" onPress={() => navigation.goBack()} />
+        </View>
+      </ScreenLayout>
+    );
+  }
 
   const handleStartCall = () => {
     webrtcManager.startCall(contact);
@@ -247,6 +259,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Theme.colors.textSecondary,
     flex: 1,
+  },
+  missingState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 16,
+    paddingHorizontal: Theme.spacing.xl,
   },
   buttonContainer: {
     marginHorizontal: Theme.spacing.xs,

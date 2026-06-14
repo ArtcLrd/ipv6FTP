@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -23,8 +23,11 @@ export function AddUserPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<UserProfile[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const latestSearchId = useRef(0);
 
   const handleSearch = async (query: string) => {
+    const searchId = latestSearchId.current + 1;
+    latestSearchId.current = searchId;
     setSearchQuery(query);
     addContactMutation.reset(); // Clear previous add error
     if (query.length < 3) {
@@ -35,11 +38,18 @@ export function AddUserPage() {
     setIsSearching(true);
     try {
       const results = await searchUsers(query);
-      setSearchResults(results);
+      if (latestSearchId.current === searchId) {
+        setSearchResults(results);
+      }
     } catch (error) {
-      logger.error('Search failed', error);
+      if (latestSearchId.current === searchId) {
+        setSearchResults([]);
+        logger.error('Search failed', error);
+      }
     } finally {
-      setIsSearching(false);
+      if (latestSearchId.current === searchId) {
+        setIsSearching(false);
+      }
     }
   };
 

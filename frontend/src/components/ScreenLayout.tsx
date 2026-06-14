@@ -1,9 +1,9 @@
 import React, { ReactNode } from 'react';
 import { StyleSheet, View, ScrollView, StyleProp, ViewStyle } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Theme } from '../theme';
 import { cn } from '../utils';
+import { ViewGradient } from './ViewGradient';
 
 interface ScreenLayoutProps {
   children: ReactNode;
@@ -33,23 +33,25 @@ export function ScreenLayout({
   );
 
   return (
-    <LinearGradient
-      colors={[Theme.neu.gradientStart, Theme.neu.gradientEnd]}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={cn(styles.gradientBg, style)}
-    >
+    <View style={cn(styles.gradientBg, style)}>
+      <ViewGradient
+        stops={[
+          { offset: 0, color: Theme.neu.gradientStart },
+          { offset: 1, color: Theme.neu.gradientEnd },
+        ]}
+      />
       <SafeAreaView edges={['top', 'bottom']} style={styles.safeArea}>
         {header && <View style={styles.headerContainer}>{header}</View>}
         {innerContent}
       </SafeAreaView>
-    </LinearGradient>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   gradientBg: {
     flex: 1,
+    backgroundColor: Theme.neu.gradientStart,
   },
   safeArea: {
     flex: 1,

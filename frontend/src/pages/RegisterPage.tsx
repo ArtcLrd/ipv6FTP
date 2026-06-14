@@ -9,7 +9,6 @@ import {
   Animated,
   Dimensions,
 } from "react-native";
-import { BlurView } from "expo-blur";
 import { useRegister } from "../modules/auth/hooks";
 import { getApiErrorMessage } from "../core/api/errors";
 import { logger } from "../core/logger/logger";
@@ -123,11 +122,7 @@ export function RegisterPage({ navigation, route }: any) {
                   { borderRadius: 22 },
                 ]}
               />
-              <BlurView
-                intensity={30}
-                tint="dark"
-                style={[StyleSheet.absoluteFill, { borderRadius: 22 }]}
-              />
+              <View style={[StyleSheet.absoluteFill, styles.cardGlassFallback, { borderRadius: 22 }]} />
 
               <View style={styles.cardInner}>
                 <View style={styles.stepContainer}>
@@ -307,6 +302,9 @@ const styles = StyleSheet.create({
   },
   cardBgOverlay: {
     backgroundColor: "rgba(0, 24, 40, 0.60)",
+  },
+  cardGlassFallback: {
+    backgroundColor: "rgba(7, 16, 19, 0.22)",
   },
   cardInner: {
     flex: 1,

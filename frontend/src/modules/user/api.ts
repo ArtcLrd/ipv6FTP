@@ -3,7 +3,7 @@ import { UserProfile } from './types';
 
 export async function getMyIP(): Promise<string> {
   const { data } = await client.get<{ ip: string }>('/api/myip');
-  return data.ip;
+  return typeof data?.ip === 'string' ? data.ip : '';
 }
 
 export async function updateIP(ip: string): Promise<void> {
@@ -14,5 +14,5 @@ export async function searchUsers(query: string): Promise<UserProfile[]> {
   const { data } = await client.get<UserProfile[]>('/api/users/search', {
     params: { q: query },
   });
-  return data;
+  return Array.isArray(data) ? data : [];
 }

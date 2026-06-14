@@ -1,11 +1,22 @@
 import * as nacl from 'tweetnacl';
-import * as SecureStore from 'expo-secure-store';
 import { Buffer } from 'buffer';
 
 const PRIVATE_KEY_STORAGE_KEY = 'ipv6ftp_private_key';
+let memoryPrivateKey: string | null = null;
+
+function getSecureStore() {
+  try {
+    return require('expo-secure-store');
+  } catch {
+    return null;
+  }
+}
 
 export async function getOrCreateKeyPair() {
-  let privateKeyStr = await SecureStore.getItemAsync(PRIVATE_KEY_STORAGE_KEY);
+  const SecureStore = getSecureStore();
+  let privateKeyStr = SecureStore
+    ? await SecureStore.getItemAsync(PRIVATE_KEY_STORAGE_KEY)
+    : memoryPrivateKey;
   
   let keyPair: nacl.BoxKeyPair;
   
@@ -14,10 +25,12 @@ export async function getOrCreateKeyPair() {
     keyPair = nacl.box.keyPair.fromSecretKey(privateKey);
   } else {
     keyPair = nacl.box.keyPair();
-    await SecureStore.setItemAsync(
-      PRIVATE_KEY_STORAGE_KEY, 
-      Buffer.from(keyPair.secretKey).toString('hex')
-    );
+    const encodedPrivateKey = Buffer.from(keyPair.secretKey).toString('hex');
+    if (SecureStore) {
+      await SecureStore.setItemAsync(PRIVATE_KEY_STORAGE_KEY, encodedPrivateKey);
+    } else {
+      memoryPrivateKey = encodedPrivateKey;
+    }
   }
   
   return {

@@ -7,7 +7,6 @@ import {
   ActivityIndicator,
   TouchableOpacityProps,
 } from "react-native";
-import { BlurView } from "expo-blur";
 import { Theme } from "../theme";
 import { BrandColors } from "../theme/colors";
 import { cn } from "../utils";
@@ -43,11 +42,10 @@ export function GlassButton({
       {...props}
     >
       {variant === "secondary" && (
-        <BlurView
-          intensity={40}
-          tint="dark"
+        <View
           style={[
             StyleSheet.absoluteFill,
+            styles.secondaryOverlay,
             { borderRadius: Theme.roundness.pill },
           ]}
         />
@@ -109,6 +107,9 @@ const styles = StyleSheet.create({
     borderLeftColor: "rgba(255, 255, 255, 0.08)",
     borderBottomColor: "rgba(0, 0, 0, 0.6)",
     borderRightColor: "rgba(0, 0, 0, 0.4)",
+  },
+  secondaryOverlay: {
+    backgroundColor: "rgba(0, 24, 40, 0.35)",
   },
   destructive: {
     backgroundColor: Theme.colors.danger,
