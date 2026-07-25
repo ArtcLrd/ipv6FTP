@@ -1,5 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
-import { getTokens, storeTokens } from '../storage/secure';
+import { getTokens, storeTokens, clearTokens } from '../storage/secure';
 import { useAuthStore } from '../../modules/auth/store';
 import { API_BASE_URL } from '../../config/env';
 
@@ -66,7 +66,34 @@ export const setupInterceptors = (client: AxiosInstance) => {
         return client(originalRequest);
       } catch (refreshError) {
         processQueue(refreshError, null);
+        
+        // Clear local tokens and auth state
+        await clearTokens();
         useAuthStore.getState().clearAuth();
+
+        // Clean up WebRTC and signaling connections to prevent leaks
+        try {
+          const { webrtcManager } = require('../../modules/call/webrtc');
+          webrtcManager.cleanup();
+        } catch (err) {
+          // Suppress errors during early startup initialization
+        }
+
+        try {
+          const { terminateSignaling } = require('../../services/signalingService');
+          terminateSignaling();
+        } catch (err) {
+          // Suppress errors during early startup initialization
+        }
+
+        // Telemetry warning
+        try {
+          const Sentry = require('@sentry/react-native');
+          Sentry.captureMessage('Session terminated due to refresh token failure', 'warning');
+        } catch (err) {
+          // Sentry might not be initialized
+        }
+
         return Promise.reject(refreshError);
       } finally {
         isRefreshing = false;

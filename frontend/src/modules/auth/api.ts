@@ -1,7 +1,8 @@
 import client from '../../core/api/client';
 import { storeTokens, clearTokens } from '../../core/storage/secure';
 import { useAuthStore } from './store';
-import { AuthResponse, User } from './types';
+import { AuthResponseSchema, CheckUsernameResponseSchema, UserSchema } from '../../core/api/schemas';
+import type { User } from '../../core/api/schemas';
 import { initializeSignaling, terminateSignaling } from '../../services/signalingService';
 import { getOrCreateKeyPair } from '../../crypto/ecdh';
 import { sendHeartbeat, uploadPublicKey } from '../phonebook/api';
@@ -17,7 +18,8 @@ async function initializeOnlinePresence() {
 }
 
 export async function login(username: string, password: string): Promise<User> {
-  const { data } = await client.post<AuthResponse>('/api/auth/login', { username, password });
+  const { data: rawData } = await client.post('/api/auth/login', { username, password });
+  const data = AuthResponseSchema.parse(rawData);
   await storeTokens(data.access_token, data.refresh_token);
   initializeSignaling();
   await initializeOnlinePresence();
@@ -26,14 +28,16 @@ export async function login(username: string, password: string): Promise<User> {
 }
 
 export async function checkUsername(username: string): Promise<{ exists: boolean; username: string }> {
-  const { data } = await client.get<{ exists: boolean; username: string }>(
+  const { data: rawData } = await client.get(
     `/api/auth/check-username?username=${encodeURIComponent(username.trim())}`
   );
+  const data = CheckUsernameResponseSchema.parse(rawData);
   return data;
 }
 
 export async function register(username: string, password: string): Promise<User> {
-  const { data } = await client.post<AuthResponse>('/api/auth/register', { username, password });
+  const { data: rawData } = await client.post('/api/auth/register', { username, password });
+  const data = AuthResponseSchema.parse(rawData);
   await storeTokens(data.access_token, data.refresh_token);
   initializeSignaling();
   await initializeOnlinePresence();
@@ -54,7 +58,8 @@ export async function logout(): Promise<void> {
 
 export async function getMe(): Promise<User | null> {
   try {
-    const { data } = await client.get<User>('/api/auth/me');
+    const { data: rawData } = await client.get('/api/auth/me');
+    const data = UserSchema.parse(rawData);
     useAuthStore.getState().setUser(data);
     return data;
   } catch (error) {
@@ -62,3 +67,4 @@ export async function getMe(): Promise<User | null> {
     return null;
   }
 }
+

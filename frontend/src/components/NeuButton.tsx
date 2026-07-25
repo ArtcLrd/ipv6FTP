@@ -21,6 +21,7 @@ interface NeuButtonProps {
   rightIcon?: React.ReactNode;
   onPress: () => void;
   style?: StyleProp<ViewStyle>;
+  accessibilityLabel?: string;
 }
 
 export function NeuButton({
@@ -33,6 +34,7 @@ export function NeuButton({
   rightIcon,
   onPress,
   style,
+  accessibilityLabel,
 }: NeuButtonProps) {
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
@@ -75,6 +77,7 @@ export function NeuButton({
         onPressOut={handlePressOut}
         disabled={disabled || loading}
         style={cn(buttonStyle, style)}
+        accessibilityLabel={accessibilityLabel}
       >
         {loading ? (
           <ActivityIndicator color={variant === 'secondary' ? Theme.colors.textPrimary : '#ffffff'} size="small" />

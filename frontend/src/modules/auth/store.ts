@@ -5,8 +5,8 @@ export interface User {
   username: string;
   role?: string;
   status?: string;
-  ip_addr?: string;
-  last_seen?: string;
+  ip_addr?: string | null;
+  last_seen?: string | null;
 }
 
 interface AuthState {

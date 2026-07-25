@@ -1,18 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import * as contactsApi from './api';
-import { useContactsStore } from './store';
 
 export function useContacts() {
-  const queryClient = useQueryClient();
-  const setContacts = useContactsStore((state) => state.setContacts);
-
   return useQuery({
     queryKey: ['contacts'],
-    queryFn: async () => {
-      const data = await contactsApi.listContacts();
-      setContacts(data);
-      return data;
-    },
+    queryFn: () => contactsApi.listContacts(),
   });
 }
 
