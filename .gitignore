@@ -43,3 +43,7 @@ Thumbs.db
 
 # Agent / tool scratch
 .agents/
+.codex-gocache/
+.codex-gotmp/
+.go-cache/
+.go-tmp/

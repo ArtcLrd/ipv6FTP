@@ -3,6 +3,7 @@ package middleware
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net"
@@ -13,12 +14,21 @@ import (
 	"time"
 
 	"ipv6ftp/internal/config"
+	"ipv6ftp/internal/models"
 	"ipv6ftp/internal/rbac"
 	"ipv6ftp/internal/repository"
 	"ipv6ftp/internal/security"
 )
 
 type claimsKey struct{}
+
+type SessionValidator interface {
+	ValidateSession(ctx context.Context, principalID, sessionID, deviceID string, authVersion int) error
+}
+
+type AuthorizationProvider interface {
+	GetAuthorization(ctx context.Context, principalID string) (models.AuthorizationContext, error)
+}
 
 func ClaimsFromContext(ctx context.Context) *security.TokenClaims {
 	claims, _ := ctx.Value(claimsKey{}).(*security.TokenClaims)
@@ -27,12 +37,7 @@ func ClaimsFromContext(ctx context.Context) *security.TokenClaims {
 
 func Auth(cfg config.Config, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
-		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-		token := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+		token := bearerTokenFromRequest(r)
 		if token == "" {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
@@ -44,6 +49,103 @@ func Auth(cfg config.Config, next http.HandlerFunc) http.HandlerFunc {
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), claimsKey{}, claims)))
 	}
+}
+
+func AuthWithSession(cfg config.Config, validator SessionValidator, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		token := bearerTokenFromRequest(r)
+		if token == "" {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		claims, err := security.ParseToken([]byte(cfg.JWTSecret), token, "access")
+		if err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if validator != nil {
+			if err := validator.ValidateSession(r.Context(), claims.Sub, claims.SessionID, claims.DeviceID, claims.AuthVersion); err != nil {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), claimsKey{}, claims)))
+	}
+}
+
+func AuthWithPermission(cfg config.Config, validator SessionValidator, cache repository.CacheRepo, permission string, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		token := bearerTokenFromRequest(r)
+		if token == "" {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		claims, err := security.ParseToken([]byte(cfg.JWTSecret), token, "access")
+		if err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if validator != nil {
+			if err := validator.ValidateSession(r.Context(), claims.Sub, claims.SessionID, claims.DeviceID, claims.AuthVersion); err != nil {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+		authzProvider, ok := validator.(AuthorizationProvider)
+		if !ok || authzProvider == nil {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+		authz, err := loadAuthorization(r.Context(), authzProvider, cache, claims.Sub, claims.AuthVersion)
+		if err != nil || !hasPermission(authz.Permissions, permission) {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), claimsKey{}, claims)))
+	}
+}
+
+func bearerTokenFromRequest(r *http.Request) string {
+	authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		return strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+	}
+	return strings.TrimSpace(r.URL.Query().Get("access_token"))
+}
+
+func loadAuthorization(ctx context.Context, provider AuthorizationProvider, cache repository.CacheRepo, principalID string, authVersion int) (models.AuthorizationContext, error) {
+	key := fmt.Sprintf("ipv6ftp:authz:%s:v%d", principalID, authVersion)
+	if cache != nil {
+		if raw, ok, err := cache.GetString(ctx, key); err == nil && ok && raw != "" {
+			var authz models.AuthorizationContext
+			if json.Unmarshal([]byte(raw), &authz) == nil && authz.PrincipalID != "" {
+				return authz, nil
+			}
+		}
+	}
+	authz, err := provider.GetAuthorization(ctx, principalID)
+	if err != nil {
+		return models.AuthorizationContext{}, err
+	}
+	if authz.AuthVersion != authVersion || authz.Status != "active" {
+		return models.AuthorizationContext{}, fmt.Errorf("authorization context is stale")
+	}
+	if cache != nil {
+		_ = cache.Set(ctx, key, authz, 5*time.Minute)
+	}
+	return authz, nil
+}
+
+func hasPermission(permissions []string, required string) bool {
+	if required == "" {
+		return true
+	}
+	for _, permission := range permissions {
+		if permission == required || permission == "admin:*" {
+			return true
+		}
+	}
+	return false
 }
 
 func Recovery(logger *slog.Logger, next http.Handler) http.Handler {

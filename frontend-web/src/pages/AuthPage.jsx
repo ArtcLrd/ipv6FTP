@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
 
-export function AuthPage() {
-  const [isLogin, setIsLogin] = useState(true);
+export function AuthPage({ initialMode = "login", onCancel }) {
+  const [isLogin, setIsLogin] = useState(initialMode !== "register");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -102,6 +102,11 @@ export function AuthPage() {
 
         <div className="auth-card__footer">
           <p>Login is optional. You can still use basic features without an account.</p>
+          {onCancel && (
+            <button className="benefits-dialog__link" type="button" onClick={onCancel}>
+              Continue as guest
+            </button>
+          )}
         </div>
       </div>
     </div>

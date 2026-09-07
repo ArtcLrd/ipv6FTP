@@ -115,9 +115,7 @@ export function initializeSignaling() {
     // Store as pending in case UI hasn't registered yet
     pendingOffer = { from, offer: payload.offer };
     webrtcManager.setIncomingOffer(payload.offer);
-    if (useCallStore.getState().callState !== 'connecting') {
-      useCallStore.getState().setCallState('incoming');
-    }
+    useCallStore.getState().setCallState('incoming');
   }));
 
   unsubscribers.push(wsManager.on('answer', async (data: any) => {

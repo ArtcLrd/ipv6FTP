@@ -64,6 +64,9 @@ export function RegisterPage({ navigation, route }: any) {
     registerMutation.mutate(
       { username: username.trim(), password },
       {
+        onSuccess: () => {
+          navigation.reset({ index: 0, routes: [{ name: "MainTabs" }] });
+        },
         onError: (error) => {
           logger.error(
             "Registration failed",

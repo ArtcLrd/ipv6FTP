@@ -28,8 +28,8 @@ export const setupInterceptors = (client: AxiosInstance) => {
       if (
         error.response?.status !== 401 ||
         originalRequest._retry ||
-        originalRequest.url?.includes('/api/auth/login') ||
-        originalRequest.url?.includes('/api/auth/register')
+        originalRequest.url?.includes('/api/v1/auth/login') ||
+        originalRequest.url?.includes('/api/v1/auth/register')
       ) {
         return Promise.reject(error);
       }
@@ -56,7 +56,7 @@ export const setupInterceptors = (client: AxiosInstance) => {
         }
 
         // Use basic axios to avoid interceptors on the refresh call
-        const { data } = await axios.post(`${API_BASE_URL}/api/auth/refresh`, {
+        const { data } = await axios.post(`${API_BASE_URL}/api/v1/auth/refresh`, {
           refresh_token: tokens.refreshToken,
         });
 

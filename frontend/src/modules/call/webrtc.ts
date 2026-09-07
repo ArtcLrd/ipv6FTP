@@ -2,7 +2,16 @@ import { wsManager } from '../../realtime/websocket';
 import { useCallStore } from './store';
 import { logger } from '../../core/logger/logger';
 import type { Contact } from '../contacts/types';
-import { createRoom, getTurnServers, sendRoomInvite } from './api';
+import {
+  createCallInvitation,
+  createRoom,
+  endCallSession,
+  getTurnServers,
+  joinCallByCode,
+  markCallStarted,
+  sendRoomInvite,
+  type CallInvitation,
+} from './api';
 import { ICE_MODE } from '../../config/env';
 import { lookupPeer } from '../phonebook/api';
 import { useTurnStore } from '../../hooks/useTurnMode';
@@ -44,6 +53,7 @@ class WebRTCManager {
   private acceptWhenOfferArrives = false;
   private pendingRemoteCandidates: any[] = [];
   private localCandidateVersions = new Set<'IPv4' | 'IPv6' | 'relay'>();
+  private activeCallSessionID: string | null = null;
 
   private async createPeerConnection() {
     this.localCandidateVersions.clear();
@@ -147,6 +157,63 @@ class WebRTCManager {
       logger.error('Failed to start call', error);
       this.cleanup();
     }
+  }
+
+  async createInviteCall(): Promise<CallInvitation> {
+    const invitation = await createCallInvitation('voice');
+    this.activeCallSessionID = invitation.call_session_id;
+    useCallStore.getState().setCallSessionID(invitation.call_session_id);
+    useCallStore.getState().setRemoteUser('Invite peer');
+    useCallStore.getState().setCallState('calling');
+
+    await wsManager.connectCall(invitation.call_session_id);
+    await wsManager.waitFor('open');
+    this.beginOfferWhenPeerJoins();
+    return invitation;
+  }
+
+  async joinCallWithCode(code: string) {
+    const joined = await joinCallByCode(code);
+    this.activeCallSessionID = joined.call_session_id;
+    useCallStore.getState().setCallSessionID(joined.call_session_id);
+    useCallStore.getState().setRemoteUser('Invite peer');
+    useCallStore.getState().setCallState('connecting');
+
+    await wsManager.connectCall(joined.call_session_id);
+    await wsManager.waitFor('open');
+  }
+
+  private beginOfferWhenPeerJoins() {
+    wsManager.waitFor('peer-joined', 30000)
+      .then(async () => {
+        this.pc = await this.createPeerConnection();
+        this._setupListeners();
+
+        this.localStream = await mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+          video: false,
+        });
+
+        this.localStream.getTracks().forEach((track: any) => {
+          track.enabled = true;
+          this.pc?.addTrack(track, this.localStream!);
+        });
+
+        useCallStore.getState().setLocalStream(this.localStream);
+
+        const offer = await this.pc.createOffer({});
+        await this.pc.setLocalDescription(offer);
+
+        wsManager.send('offer', { offer });
+      })
+      .catch((error) => {
+        logger.warn('Peer did not join call invitation in time', error);
+        this.cleanup();
+      });
   }
 
   async handleOffer(from: string, offer: any) {
@@ -260,6 +327,7 @@ class WebRTCManager {
       logger.info('ICE Connection state:', state);
       if (state === 'connected' || state === 'completed') {
         useCallStore.getState().setCallState('connected');
+        this.markActiveCallStarted();
       }
       if (state === 'failed' || state === 'closed') {
         const { turnEnabled } = useTurnStore.getState();
@@ -278,6 +346,7 @@ class WebRTCManager {
       logger.info('Connection state:', state);
       if (state === 'connected') {
         useCallStore.getState().setCallState('connected');
+        this.markActiveCallStarted();
       }
       if (state === 'failed') {
         const { turnEnabled } = useTurnStore.getState();
@@ -334,6 +403,10 @@ class WebRTCManager {
   }
 
   cleanup() {
+    const callSessionID = this.activeCallSessionID ?? useCallStore.getState().callSessionID;
+    if (callSessionID) {
+      endCallSession(callSessionID).catch((error) => logger.warn('Failed to end call session', error));
+    }
     this.localStream?.getTracks().forEach((track: any) => track.stop());
     this.pc?.close();
     this.pc = null;
@@ -341,8 +414,15 @@ class WebRTCManager {
     this.incomingOffer = null;
     this.acceptWhenOfferArrives = false;
     this.pendingRemoteCandidates = [];
+    this.activeCallSessionID = null;
     wsManager.disconnect();
     useCallStore.getState().resetCall();
+  }
+
+  private markActiveCallStarted() {
+    const callSessionID = this.activeCallSessionID ?? useCallStore.getState().callSessionID;
+    if (!callSessionID) return;
+    markCallStarted(callSessionID).catch((error) => logger.warn('Failed to mark call started', error));
   }
 }
 

@@ -21,7 +21,7 @@ const ICE_CONNECT_TIMEOUT_MS = 20_000;
 const ICE_DISCONNECT_GRACE_MS = 5_000;
 
 export function AppPage() {
-  const { user, logout } = useAuth();
+  const { user, logout, showGuestPrompt } = useAuth();
   const { ip, isIPv6, loading: ipLoading, error: ipError } = useMyIP();
   const [invite, setInvite] = useState(null);
 
@@ -316,7 +316,24 @@ export function AppPage() {
 
         {/* ── Right Column ── */}
         <div className="column column--right">
-          {user && (
+          {user?.account_type === "guest" ? (
+            <section className="card">
+              <div className="contacts-panel">
+                <h2 className="contacts-panel__title">Contacts</h2>
+                <div className="contacts-list__empty">Contacts are available with a registered account.</div>
+                <button
+                  className="btn btn--primary"
+                  onClick={() => showGuestPrompt({
+                    code: "guest_restricted_feature",
+                    reason: "restricted_feature",
+                    trigger_period_key: "feature:contacts",
+                  })}
+                >
+                  See benefits
+                </button>
+              </div>
+            </section>
+          ) : user && (
             <section className="card">
               <ContactsPanel 
                 onJoinRoom={handleJoinRoom} 

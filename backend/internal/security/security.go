@@ -2,6 +2,8 @@ package security
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"net"
 	"net/http"
 	"strings"
@@ -13,11 +15,64 @@ import (
 )
 
 type TokenClaims struct {
-	Sub       string `json:"sub"`
-	Username  string `json:"username"`
-	Role      string `json:"role"`
-	TokenType string `json:"token_type"`
+	Sub         string `json:"sub"`
+	SessionID   string `json:"sid,omitempty"`
+	DeviceID    string `json:"did,omitempty"`
+	Username    string `json:"username"`
+	Role        string `json:"role"`
+	AccountType string `json:"account_type,omitempty"`
+	PlanCode    string `json:"plan_code,omitempty"`
+	AuthVersion int    `json:"auth_version,omitempty"`
+	TokenType   string `json:"token_type"`
 	jwt.RegisteredClaims
+}
+
+func IssueAccessToken(secret []byte, userID, username, role, accountType, planCode string) (string, error) {
+	if role == "" {
+		role = "app_user"
+	}
+	claims := &TokenClaims{
+		Sub:         userID,
+		Username:    username,
+		Role:        role,
+		AccountType: accountType,
+		PlanCode:    planCode,
+		TokenType:   "access",
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(secret)
+}
+
+func IssueSessionAccessToken(secret []byte, userID, sessionID, deviceID, username, role, accountType, planCode string, authVersion int) (string, error) {
+	if role == "" {
+		role = "app_user"
+	}
+	if authVersion <= 0 {
+		authVersion = 1
+	}
+	now := time.Now()
+	claims := &TokenClaims{
+		Sub:         userID,
+		SessionID:   sessionID,
+		DeviceID:    deviceID,
+		Username:    username,
+		Role:        role,
+		AccountType: accountType,
+		PlanCode:    planCode,
+		AuthVersion: authVersion,
+		TokenType:   "access",
+		RegisteredClaims: jwt.RegisteredClaims{
+			ID:        randomJTI(),
+			ExpiresAt: jwt.NewNumericDate(now.Add(15 * time.Minute)),
+			IssuedAt:  jwt.NewNumericDate(now),
+			Issuer:    "ipv6ftp-api",
+			Audience:  []string{"ipv6ftp-native"},
+		},
+	}
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(secret)
 }
 
 func IssueTokenPair(secret []byte, userID, username, role string) (string, string, error) {
@@ -54,6 +109,14 @@ func IssueTokenPair(secret []byte, userID, username, role string) (string, strin
 		return "", "", err
 	}
 	return accessToken, refreshToken, nil
+}
+
+func randomJTI() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString(b[:])
 }
 
 func ParseToken(secret []byte, tokenStr, expectType string) (*TokenClaims, error) {

@@ -26,6 +26,7 @@ type Config struct {
 	MeteredAPIKey  string
 	MeteredApp     string
 	MeteredDomain  string
+	AppLinkBaseURL string
 }
 
 func Load() (Config, error) {
@@ -48,6 +49,7 @@ func Load() (Config, error) {
 		MeteredAPIKey:  os.Getenv("METERED_API_KEY"),
 		MeteredApp:     os.Getenv("METERED_APP_NAME"),
 		MeteredDomain:  os.Getenv("METERED_DOMAIN"),
+		AppLinkBaseURL: strings.TrimRight(os.Getenv("APP_LINK_BASE_URL"), "/"),
 	}
 	if cfg.DatabaseURL == "" {
 		return Config{}, fmt.Errorf("database URL is required")

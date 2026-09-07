@@ -3,8 +3,16 @@ import * as authApi from './api';
 import { useAuthStore } from './store';
 
 export function useAuth() {
-  const { user, isAuthenticated, isLoading } = useAuthStore();
-  return { user, isAuthenticated, isLoading };
+  const { user, identityMode, hasIdentity, isAuthenticated, isLoading } = useAuthStore();
+  return {
+    user,
+    identityMode,
+    hasIdentity,
+    isAuthenticated,
+    isGuest: identityMode === 'guest',
+    isExpiredGuest: false,
+    isLoading,
+  };
 }
 
 export function useLogin() {

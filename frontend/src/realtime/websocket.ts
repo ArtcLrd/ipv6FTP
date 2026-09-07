@@ -1,4 +1,5 @@
 import { WS_URL } from '../config/env';
+import { getTokens } from '../core/storage/secure';
 import { logger } from '../core/logger/logger';
 
 type MessageHandler = (data: any) => void;
@@ -20,6 +21,17 @@ class WebSocketManager {
     this.disconnect();
     this.roomID = roomID;
     this.url = `${WS_URL}/ws?room=${encodeURIComponent(roomID)}`;
+    this._connect();
+  }
+
+  async connectCall(callSessionID: string) {
+    const tokens = await getTokens();
+    if (!tokens?.accessToken) {
+      throw new Error('Missing access token');
+    }
+    this.disconnect();
+    this.roomID = callSessionID;
+    this.url = `${WS_URL}/api/v1/calls/${encodeURIComponent(callSessionID)}/signal?access_token=${encodeURIComponent(tokens.accessToken)}`;
     this._connect();
   }
 

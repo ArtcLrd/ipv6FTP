@@ -6,6 +6,8 @@ type AppError struct {
 	Message string
 	Status  int
 	Err     error
+	Code    string
+	Details any
 }
 
 func (e *AppError) Error() string {
@@ -16,7 +18,12 @@ func (e *AppError) Error() string {
 }
 
 func New(message string, status int) *AppError { return &AppError{Message: message, Status: status} }
-func Wrap(err error, message string, status int) *AppError { return &AppError{Message: message, Status: status, Err: err} }
+func Wrap(err error, message string, status int) *AppError {
+	return &AppError{Message: message, Status: status, Err: err}
+}
+func NewCoded(message string, status int, code string, details any) *AppError {
+	return &AppError{Message: message, Status: status, Code: code, Details: details}
+}
 
 var ErrUnauthorized = New("Unauthorized", http.StatusUnauthorized)
 var ErrBadRequest = New("Bad request", http.StatusBadRequest)

@@ -18,7 +18,6 @@ import (
 	apperr "ipv6ftp/internal/errors"
 	"ipv6ftp/internal/middleware"
 	"ipv6ftp/internal/models"
-	"ipv6ftp/internal/rbac"
 	"ipv6ftp/internal/realtime"
 	"ipv6ftp/internal/repository"
 	"ipv6ftp/internal/security"
@@ -70,6 +69,14 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 
 func writeError(w http.ResponseWriter, err error) {
 	if ae, ok := err.(*apperr.AppError); ok {
+		if ae.Code != "" || ae.Details != nil {
+			writeJSON(w, ae.Status, map[string]any{
+				"error":   ae.Message,
+				"code":    ae.Code,
+				"details": ae.Details,
+			})
+			return
+		}
 		http.Error(w, ae.Message, ae.Status)
 		return
 	}
@@ -83,6 +90,24 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user, access, refresh, err := h.svc.Register(r.Context(), req, security.ClientIP(r), r.UserAgent())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"user":          user,
+		"access_token":  access,
+		"refresh_token": refresh,
+	})
+}
+
+func (h *AuthHandler) BootstrapGuest(w http.ResponseWriter, r *http.Request) {
+	var req models.GuestBootstrapRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	user, access, refresh, err := h.svc.BootstrapGuest(r.Context(), req, security.ClientIP(r), r.UserAgent())
 	if err != nil {
 		writeError(w, err)
 		return
@@ -151,6 +176,38 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, user)
+}
+
+func (h *AuthHandler) PendingPrompts(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.ClaimsFromContext(r.Context())
+	if claims == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	prompts, err := h.svc.ListPendingPrompts(r.Context(), claims.Sub)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"prompts": prompts})
+}
+
+func (h *AuthHandler) RecordPromptAction(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.ClaimsFromContext(r.Context())
+	if claims == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var req models.PromptActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	if err := h.svc.RecordPromptAction(r.Context(), claims.Sub, req); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // CheckUsername checks whether a username is already registered.
@@ -463,7 +520,7 @@ func (h *RoomHandler) WebSocket(w http.ResponseWriter, r *http.Request) {
 
 func (h *RoomHandler) AdminLockdown(w http.ResponseWriter, r *http.Request) {
 	claims := middleware.ClaimsFromContext(r.Context())
-	if claims == nil || !rbac.HasPermission(claims.Role, "manage:lockdown") {
+	if claims == nil {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}

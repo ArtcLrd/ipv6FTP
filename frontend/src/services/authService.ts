@@ -26,7 +26,12 @@ export async function initializeSession() {
   } catch (error) {
     logger.error('Failed to initialize session', error);
   }
-  return null;
+  try {
+    return (await authApi.bootstrapGuest()) ?? null;
+  } catch (guestError) {
+    logger.error('Failed to bootstrap guest session', guestError);
+    return null;
+  }
 }
 
 export function terminateSession() {

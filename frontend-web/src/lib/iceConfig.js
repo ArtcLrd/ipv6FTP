@@ -13,6 +13,7 @@
 // ICE candidate priority (RFC 8445):
 //   host > server-reflexive (STUN) > relayed (TURN)
 //   WebRTC always tries faster direct paths first — TURN is only used as last resort.
+import { apiGet } from "./api";
 
 const STUN_SERVERS = [
   // Google STUN — supports both IPv4 and IPv6 reflexive candidate discovery
@@ -41,7 +42,7 @@ const BASE_CONFIG = {
  */
 export async function getIceConfig() {
   try {
-    const res = await fetch("/api/turn-credentials");
+    const res = await apiGet("/api/v1/turn/credentials");
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const { servers } = await res.json();
 

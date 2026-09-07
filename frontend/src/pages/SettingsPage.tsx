@@ -13,9 +13,11 @@ import { ConfirmModal } from '../components/ConfirmModal';
 import { useNetwork } from '../hooks/useNetwork';
 import { useIpv6Status } from '../hooks/useIpv6Status';
 import { useTurnMode } from '../hooks/useTurnMode';
+import { useNavigation } from '@react-navigation/native';
 
 export function SettingsPage() {
-  const { user } = useAuth();
+  const { user, isGuest, isExpiredGuest } = useAuth();
+  const navigation = useNavigation<any>();
   const logoutMutation = useLogout();
   const [logoutConfirmVisible, setLogoutConfirmVisible] = useState(false);
 
@@ -53,9 +55,24 @@ export function SettingsPage() {
         <Avatar username={user?.username || 'User'} size={72} />
         <Text style={styles.username}>{user?.username || 'User'}</Text>
         <View style={styles.roleBadge}>
-          <Text style={styles.roleText}>{user?.role || 'Peer User'}</Text>
+          <Text style={styles.roleText}>{isGuest ? 'Trial Guest' : user?.role || 'Peer User'}</Text>
         </View>
+        {isExpiredGuest && (
+          <Text style={styles.guestPrompt}>Your trial access has ended. Log in or create an account to continue.</Text>
+        )}
       </NeuCard>
+
+      {isGuest && (
+        <>
+          <Text style={styles.sectionTitle}>Account</Text>
+          <NeuCard style={styles.settingGroup}>
+            <View style={styles.guestActions}>
+              <NeuButton title="Create Account" onPress={() => navigation.navigate('Register')} />
+              <NeuButton title="Log In" variant="secondary" onPress={() => navigation.navigate('Login')} />
+            </View>
+          </NeuCard>
+        </>
+      )}
 
       <Text style={styles.sectionTitle}>Network Configuration</Text>
       <NeuCard style={styles.settingGroup}>
@@ -203,6 +220,16 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     textTransform: 'uppercase',
+  },
+  guestPrompt: {
+    color: Theme.colors.textSecondary,
+    fontSize: 13,
+    textAlign: 'center',
+    marginTop: Theme.spacing.sm,
+  },
+  guestActions: {
+    gap: Theme.spacing.sm,
+    paddingVertical: Theme.spacing.md,
   },
   sectionTitle: {
     fontSize: 12,

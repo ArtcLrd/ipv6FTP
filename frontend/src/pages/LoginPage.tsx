@@ -45,6 +45,13 @@ export function LoginPage({ navigation }: any) {
     loginMutation.mutate(
       { username: username.trim(), password },
       {
+        onSuccess: () => {
+          if (typeof navigation.reset === "function") {
+            navigation.reset({ index: 0, routes: [{ name: "MainTabs" }] });
+          } else {
+            navigation.navigate("MainTabs");
+          }
+        },
         onError: (error) => {
           logger.error("Login failed", getApiErrorMessage(error, "Wrong password."));
           viewRef.current?.triggerShake();
@@ -99,4 +106,3 @@ export function LoginPage({ navigation }: any) {
     />
   );
 }
-

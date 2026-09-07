@@ -1,9 +1,21 @@
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { AuthPage } from "./pages/AuthPage";
 import { AppPage } from "./pages/AppPage";
+import { GuestBenefitsDialog } from "./components/GuestBenefitsDialog";
+import { useState } from "react";
 
 function Root() {
-  const { user, loading } = useAuth();
+  const {
+    user,
+    loading,
+    bootstrapError,
+    bootstrapGuest,
+    activePrompt,
+    dismissPrompt,
+    recordPromptAction,
+    clearGuestPrompt,
+  } = useAuth();
+  const [authMode, setAuthMode] = useState(null);
 
   if (loading) {
     return (
@@ -17,7 +29,41 @@ function Root() {
     );
   }
 
-  return user ? <AppPage /> : <AuthPage />;
+  if (!user && bootstrapError) {
+    return (
+      <div className="splash">
+        <div className="splash__content">
+          <div className="splash__logo">⚡</div>
+          <p>{bootstrapError}</p>
+          <button className="btn btn--primary" onClick={bootstrapGuest}>Retry</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (authMode) {
+    return <AuthPage initialMode={authMode} onCancel={() => setAuthMode(null)} />;
+  }
+
+  return (
+    <>
+      <AppPage />
+      <GuestBenefitsDialog
+        prompt={activePrompt}
+        onSaveForLater={dismissPrompt}
+        onSignUp={async () => {
+          await recordPromptAction(activePrompt, "signup");
+          clearGuestPrompt();
+          setAuthMode("register");
+        }}
+        onSignIn={async () => {
+          await recordPromptAction(activePrompt, "signin");
+          clearGuestPrompt();
+          setAuthMode("login");
+        }}
+      />
+    </>
+  );
 }
 
 export default function App() {

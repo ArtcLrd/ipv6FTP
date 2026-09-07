@@ -12,6 +12,7 @@ export async function connectSSE(onEvent: (data: any) => void) {
 
   const es = new RNEventSource(`${API_BASE_URL}/api/events`, {
     headers: { Authorization: `Bearer ${tokens.accessToken}` },
+    lineEndingCharacter: '\n',
   });
 
   es.addEventListener('message', (event) => {
