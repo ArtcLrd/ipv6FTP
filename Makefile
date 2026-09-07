@@ -12,21 +12,21 @@ build:
 	@echo "▶ Building frontend..."
 	cd frontend && npm run build
 	@echo "▶ Copying dist to backend..."
-	if exist backend\dist rmdir /s /q backend\dist
-	xcopy /E /I frontend\dist backend\dist
+	if exist backend\cmd\api\dist rmdir /s /q backend\cmd\api\dist
+	xcopy /E /I frontend\dist backend\cmd\api\dist
 	@echo "▶ Building Go binary..."
-	cd backend && go build -o ..\ipv6ftp.exe .
+	cd backend && go build -o ..\ipv6ftp.exe ./cmd/api/
 	@echo "✓ Build complete: ipv6ftp.exe"
 
 # Run Go backend dev server (uses placeholder dist)
 dev-backend:
-	cd backend && go run .
+	cd backend && go run ./cmd/api/
 
 # Run Vite dev server (proxies /api and /ws to Go on :8080)
 dev-frontend:
 	cd frontend && npm run dev
 
 clean:
-	if exist backend\dist rmdir /s /q backend\dist
+	if exist backend\cmd\api\dist rmdir /s /q backend\cmd\api\dist
 	if exist ipv6ftp.exe del ipv6ftp.exe
 	if exist frontend\dist rmdir /s /q frontend\dist
