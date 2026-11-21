@@ -4,7 +4,7 @@ import { Theme } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
 import { ScreenLayout } from '../components/ScreenLayout';
 import { NeuCard } from '../components/NeuCard';
-import { webrtcManager } from '../modules/call/webrtc';
+import { nativeVoiceCoordinator } from '../modules/call/nativeVoice';
 import type { CallInvitation } from '../modules/call/api';
 import { handlePossibleQuotaPrompt } from '../modules/prompts/errors';
 
@@ -17,7 +17,7 @@ export function CallsPage() {
   const createInvite = async () => {
     try {
       setBusy(true);
-      const created = await webrtcManager.createInviteCall();
+      const created = await nativeVoiceCoordinator.createInviteCall();
       setInvitation(created);
     } catch (error) {
       const quotaMessage = handlePossibleQuotaPrompt(error);
@@ -39,7 +39,7 @@ export function CallsPage() {
     }
     try {
       setBusy(true);
-      await webrtcManager.joinCallWithCode(code);
+      await nativeVoiceCoordinator.joinCallWithCode(code);
       setJoinCode('');
     } catch (error) {
       const quotaMessage = handlePossibleQuotaPrompt(error);
@@ -56,9 +56,6 @@ export function CallsPage() {
   const shareInvite = async () => {
     if (!invitation) return;
     const parts = [`IPv6FTP call code: ${invitation.fallback_code}`];
-    if (invitation.join_url) {
-      parts.push(invitation.join_url);
-    }
     await Share.share({ message: parts.join('\n') });
   };
 
@@ -113,7 +110,7 @@ export function CallsPage() {
 
           <View style={styles.badge}>
             <Ionicons name="shield-checkmark" size={14} color={Theme.colors.accent} style={styles.shield} />
-            <Text style={styles.badgeText}>IPv6 only for guests</Text>
+            <Text style={styles.badgeText}>Native encrypted IPv6 only</Text>
           </View>
         </NeuCard>
       </View>

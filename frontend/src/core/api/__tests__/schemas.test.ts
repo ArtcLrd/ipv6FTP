@@ -5,11 +5,14 @@ import {
   ContactSchema,
   ContactListSchema,
   PeerInfoSchema,
-  TurnCredentialsResponseSchema,
-  CreateRoomResponseSchema,
 } from '../schemas';
 
 describe('Zod Schema Validations', () => {
+  it('rejects authentication responses with empty credentials or identity', () => {
+    expect(AuthResponseSchema.safeParse({ access_token: '', refresh_token: 'refresh', user: { id: '1', username: 'alice' } }).success).toBe(false);
+    expect(AuthResponseSchema.safeParse({ access_token: 'access', refresh_token: 'refresh', user: { id: '', username: 'alice' } }).success).toBe(false);
+    expect(AuthResponseSchema.safeParse({ access_token: 'access', refresh_token: 'refresh', user: { id: '1', username: '  ' } }).success).toBe(false);
+  });
   describe('UserSchema', () => {
     it('should validate a valid User object with optional fields', () => {
       const validUser = {
@@ -148,41 +151,4 @@ describe('Zod Schema Validations', () => {
     });
   });
 
-  describe('TurnCredentialsResponseSchema', () => {
-    it('should validate server options and default list', () => {
-      const raw = {
-        servers: [
-          {
-            urls: 'turn:turn.example.com:3478',
-            username: 'user',
-            credential: 'pwd',
-          },
-          {
-            urls: ['stun:stun1.example.com:3478', 'stun:stun2.example.com:3478'],
-          },
-        ],
-      };
-      const result = TurnCredentialsResponseSchema.safeParse(raw);
-      expect(result.success).toBe(true);
-      expect(result.data?.servers).toHaveLength(2);
-      expect(result.data?.servers[0].urls).toBe('turn:turn.example.com:3478');
-      expect(result.data?.servers[1].urls).toEqual(['stun:stun1.example.com:3478', 'stun:stun2.example.com:3478']);
-    });
-
-    it('should supply default servers array when missing', () => {
-      const raw = {};
-      const result = TurnCredentialsResponseSchema.safeParse(raw);
-      expect(result.success).toBe(true);
-      expect(result.data?.servers).toEqual([]);
-    });
-  });
-
-  describe('CreateRoomResponseSchema', () => {
-    it('should validate create room response', () => {
-      const raw = { room_id: 'room-555' };
-      const result = CreateRoomResponseSchema.safeParse(raw);
-      expect(result.success).toBe(true);
-      expect(result.data?.room_id).toBe('room-555');
-    });
-  });
 });

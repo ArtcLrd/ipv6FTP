@@ -36,12 +36,12 @@ func main() {
 func run(ctx context.Context, args []string) error {
 	_ = godotenv.Load()
 
-	command := "up"
-	if len(args) > 0 {
-		command = strings.TrimSpace(args[0])
+	command, allowDestructiveReset, err := parseArgs(args)
+	if err != nil {
+		return err
 	}
 	if command != "up" && command != "status" {
-		return fmt.Errorf("unsupported command %q; use up or status", command)
+		return fmt.Errorf("unsupported command %q; use up or status [--allow-destructive-reset]", command)
 	}
 
 	connString := firstEnv("MIGRATOR_DATABASE_URL", "DATABASE_URL", "SUPABASE_DB_URL", "POSTGRES_URL")
@@ -64,7 +64,24 @@ func run(ctx context.Context, args []string) error {
 	if command == "status" {
 		return printStatus(ctx, pool, migrations)
 	}
-	return applyMigrations(ctx, pool, migrations)
+	return applyMigrations(ctx, pool, migrations, allowDestructiveReset)
+}
+
+func parseArgs(args []string) (string, bool, error) {
+	command := "up"
+	allowDestructiveReset := false
+	for _, arg := range args {
+		switch strings.TrimSpace(arg) {
+		case "":
+		case "up", "status":
+			command = strings.TrimSpace(arg)
+		case "--allow-destructive-reset":
+			allowDestructiveReset = true
+		default:
+			return "", false, fmt.Errorf("unsupported argument %q", arg)
+		}
+	}
+	return command, allowDestructiveReset, nil
 }
 
 func readMigrations(dir string) ([]migrationFile, error) {
@@ -98,7 +115,7 @@ func readMigrations(dir string) ([]migrationFile, error) {
 	return migrations, nil
 }
 
-func applyMigrations(ctx context.Context, pool *pgxpool.Pool, migrations []migrationFile) error {
+func applyMigrations(ctx context.Context, pool *pgxpool.Pool, migrations []migrationFile, allowDestructiveReset bool) error {
 	runCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	tx, err := pool.Begin(runCtx)
@@ -112,6 +129,11 @@ func applyMigrations(ctx context.Context, pool *pgxpool.Pool, migrations []migra
 	}
 	if err := ensureMigrationTable(runCtx, tx); err != nil {
 		return err
+	}
+	if allowDestructiveReset {
+		if _, err := tx.Exec(runCtx, `SELECT set_config('app.allow_destructive_reset', 'on', true)`); err != nil {
+			return fmt.Errorf("enable destructive reset guard: %w", err)
+		}
 	}
 
 	for _, migration := range migrations {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"net"
 	"net/http"
 	"strings"
@@ -41,6 +42,8 @@ func IssueAccessToken(secret []byte, userID, username, role, accountType, planCo
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			Issuer:    "ipv6ftp-api",
+			Audience:  []string{"ipv6ftp-native"},
 		},
 	}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(secret)
@@ -87,6 +90,8 @@ func IssueTokenPair(secret []byte, userID, username, role string) (string, strin
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			Issuer:    "ipv6ftp-api",
+			Audience:  []string{"ipv6ftp-native"},
 		},
 	}
 	accessToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims).SignedString(secret)
@@ -102,6 +107,8 @@ func IssueTokenPair(secret []byte, userID, username, role string) (string, strin
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(7 * 24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			Issuer:    "ipv6ftp-api",
+			Audience:  []string{"ipv6ftp-native"},
 		},
 	}
 	refreshToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims).SignedString(secret)
@@ -121,9 +128,21 @@ func randomJTI() string {
 
 func ParseToken(secret []byte, tokenStr, expectType string) (*TokenClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenStr, &TokenClaims{}, func(token *jwt.Token) (interface{}, error) {
+		if token.Method.Alg() != jwt.SigningMethodHS256.Alg() {
+			return nil, apperr.ErrUnauthorized
+		}
 		return secret, nil
-	})
+	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}), jwt.WithIssuer("ipv6ftp-api"), jwt.WithAudience("ipv6ftp-native"), jwt.WithExpirationRequired())
 	if err != nil {
+		// An expired token is refresh-eligible only for its intended purpose.
+		// JWT parsing returns its claims alongside expiration errors; other
+		// signature and claims errors are still handled by the caller.
+		if errors.Is(err, jwt.ErrTokenExpired) && token != nil {
+			claims, ok := token.Claims.(*TokenClaims)
+			if !ok || claims.TokenType != expectType {
+				return nil, apperr.ErrUnauthorized
+			}
+		}
 		return nil, err
 	}
 	claims, ok := token.Claims.(*TokenClaims)

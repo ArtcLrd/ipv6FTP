@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, Switch, Platform, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import { removeLocalProfile } from '../modules/auth/api';
 import { useAuth, useLogout } from '../modules/auth/hooks';
 import { Theme } from '../theme';
 import { Avatar } from '../components/Avatar';
 import { Ionicons } from '@expo/vector-icons';
-import { ICE_MODE } from '../config/env';
 import { ScreenLayout } from '../components/ScreenLayout';
 import { NeuCard } from '../components/NeuCard';
 import { NeuButton } from '../components/NeuButton';
@@ -12,7 +12,6 @@ import { PulsingDot } from '../components/PulsingDot';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { useNetwork } from '../hooks/useNetwork';
 import { useIpv6Status } from '../hooks/useIpv6Status';
-import { useTurnMode } from '../hooks/useTurnMode';
 import { useNavigation } from '@react-navigation/native';
 
 export function SettingsPage() {
@@ -23,21 +22,6 @@ export function SettingsPage() {
 
   const { type: netType } = useNetwork();
   const { hasIpv6, loading: loadingIpv6 } = useIpv6Status();
-  const { turnEnabled, setTurnEnabled } = useTurnMode();
-
-  const getIceModeDescription = (mode: string) => {
-    switch (mode) {
-      case 'stun':
-        return 'STUN Mode (Direct P2P)';
-      case 'turn':
-        return 'TURN Relay Mode (Relayed P2P)';
-      case 'ipv6-direct':
-        return 'IPv6 Direct Mode (Direct P2P)';
-      default:
-        return 'STUN Mode (Direct P2P)';
-    }
-  };
-
   const handleLogoutConfirm = () => {
     setLogoutConfirmVisible(false);
     logoutMutation.mutate();
@@ -74,20 +58,48 @@ export function SettingsPage() {
         </>
       )}
 
+      {!isGuest && (
+        <>
+          <Text style={styles.sectionTitle}>Account</Text>
+          <NeuCard style={styles.settingGroup}>
+            <TouchableOpacity style={styles.settingItem} onPress={() => navigation.navigate('ChangePassword')} accessibilityRole="button">
+              <View style={styles.settingItemLeft}>
+                <Ionicons name="key-outline" size={20} color={Theme.colors.accent} style={styles.settingIcon} />
+                <View style={styles.settingItemDetails}>
+                  <Text style={styles.settingLabel}>Change password</Text>
+                  <Text style={styles.settingSub}>Update your account password</Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={Theme.colors.textSecondary} />
+            </TouchableOpacity>
+            <View style={styles.settingDivider} />
+            <TouchableOpacity style={styles.settingItem} onPress={() => navigation.navigate('RecoveryCodes')} accessibilityRole="button">
+              <View style={styles.settingItemLeft}>
+                <Ionicons name="shield-checkmark-outline" size={20} color={Theme.colors.accent} style={styles.settingIcon} />
+                <View style={styles.settingItemDetails}>
+                  <Text style={styles.settingLabel}>Recovery codes</Text>
+                  <Text style={styles.settingSub}>Generate a new set of codes</Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={Theme.colors.textSecondary} />
+            </TouchableOpacity>
+          </NeuCard>
+        </>
+      )}
+
       <Text style={styles.sectionTitle}>Network Configuration</Text>
       <NeuCard style={styles.settingGroup}>
-        {/* ICE Mode */}
         <View style={styles.settingItem}>
           <View style={styles.settingItemLeft}>
             <Ionicons name="git-network-outline" size={20} color={Theme.colors.accent} style={styles.settingIcon} />
             <View>
-              <Text style={styles.settingLabel}>ICE Mode</Text>
-              <Text style={styles.settingSub}>{getIceModeDescription(ICE_MODE)}</Text>
+              <Text style={styles.settingLabel}>Voice transport</Text>
+              <Text style={styles.settingSub}>Native direct IPv6 UDP</Text>
             </View>
           </View>
           <View style={styles.badge}>
             <Text style={styles.badgeText}>
-              {turnEnabled ? 'TURN' : ICE_MODE.toUpperCase()}
+              DIRECT
             </Text>
           </View>
         </View>
@@ -118,21 +130,15 @@ export function SettingsPage() {
 
         <View style={styles.settingDivider} />
 
-        {/* TURN Mode Toggle */}
         <View style={styles.settingItem}>
           <View style={styles.settingItemLeft}>
-            <Ionicons name="swap-horizontal-outline" size={20} color={Theme.colors.accent} style={styles.settingIcon} />
+            <Ionicons name="swap-horizontal-outline" size={20} color={Theme.colors.textSecondary} style={styles.settingIcon} />
             <View>
-              <Text style={styles.settingLabel}>TURN Mode</Text>
-              <Text style={styles.settingSub}>Allow relay for IPv4 calls</Text>
+              <Text style={styles.settingLabel}>IPv4 blind relay</Text>
+              <Text style={styles.settingSub}>Planned for the next transport phase</Text>
             </View>
           </View>
-          <Switch
-            value={turnEnabled}
-            onValueChange={setTurnEnabled}
-            trackColor={{ false: 'rgba(255,255,255,0.1)', true: Theme.colors.accent }}
-            thumbColor={Platform.OS === 'ios' ? undefined : '#ffffff'}
-          />
+          <Text style={styles.comingSoonText}>Unavailable</Text>
         </View>
       </NeuCard>
 
@@ -169,6 +175,16 @@ export function SettingsPage() {
           onPress={() => setLogoutConfirmVisible(true)}
           loading={logoutMutation.isPending}
         />
+        {!isGuest && user && <NeuButton
+          title="Remove profile from this device"
+          variant="destructive"
+          onPress={() => Alert.alert('Remove profile from this device?', 'This signs you out and removes this profile’s keys and trusted peers from the device.', [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Remove profile', style: 'destructive', onPress: () => {
+              void removeLocalProfile().catch(() => undefined);
+            } },
+          ])}
+        />}
       </View>
 
       <ConfirmModal

@@ -76,9 +76,14 @@ func (h *CallSignalHub) Join(ctx context.Context, client *SignalClient) error {
 		_ = h.redis.Set(ctx, key, client.principalID, signalKeyTTL).Err()
 		_ = h.redis.SAdd(ctx, "ipv6ftp:call:"+client.callSessionID+":participants", client.participantID).Err()
 		_ = h.redis.Expire(ctx, "ipv6ftp:call:"+client.callSessionID+":participants", signalKeyTTL).Err()
+		if count, err := h.redis.SCard(ctx, "ipv6ftp:call:"+client.callSessionID+":participants").Result(); err == nil {
+			peerCount = int(count)
+		}
 	}
 	if peerCount >= 2 {
-		h.publish(ctx, signalEnvelope{Type: "peer-joined", CallSessionID: client.callSessionID, SenderID: client.principalID, ParticipantID: client.participantID})
+		// A setup barrier must reach both peers. Leaving SenderID empty prevents
+		// delivery from excluding the newly joined client.
+		h.publish(ctx, signalEnvelope{Type: "peer-joined", CallSessionID: client.callSessionID, ParticipantID: client.participantID})
 	}
 	return nil
 }
@@ -105,7 +110,7 @@ func (h *CallSignalHub) Leave(ctx context.Context, client *SignalClient) {
 
 func (h *CallSignalHub) Relay(ctx context.Context, client *SignalClient, msg Message) {
 	switch msg.Type {
-	case "offer", "answer", "ice-candidate", "call-ended":
+	case "noise-handshake", "verification", "call-ended", "state":
 		h.publish(ctx, signalEnvelope{
 			Type:          msg.Type,
 			CallSessionID: client.callSessionID,
@@ -114,6 +119,15 @@ func (h *CallSignalHub) Relay(ctx context.Context, client *SignalClient, msg Mes
 			Payload:       msg.Payload,
 		})
 	}
+}
+
+func (h *CallSignalHub) PublishEndpoint(ctx context.Context, callSessionID, principalID string, payload any) error {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	h.publish(ctx, signalEnvelope{Type: "direct-endpoint", CallSessionID: callSessionID, SenderID: principalID, Payload: raw})
+	return nil
 }
 
 func (h *CallSignalHub) publish(ctx context.Context, envelope signalEnvelope) {

@@ -1,6 +1,62 @@
 # VoIPv6 Stitch Design Prompt
 
+When signed-out profile removal cannot read secure storage, show an error with Retry and Cancel.
+
+The quota gate offers Retry, Sign out, and Sign in or register. Account entry follows the existing local sign-out and unconfirmed-revocation flow.
+
+Signed-out entry offers **Remove profile from this device** when a profile remains locally. Explain that removal clears the profile's keys and trusted peers, and offer retry when cleanup fails.
+
+During registered enrollment, retain the entry form and show its progress. Restricted, pending-deletion, and all-services quota-gated states block protected navigation and offer a fresh check and sign-out. Display a deadline when the server supplies one.
+
+Settings offers **Remove profile from this device** with confirmation. Removal signs the user out and clears the profile's local keys and trusted peers. The app retains the existing unconfirmed server logout message if revocation cannot be confirmed and resumes interrupted removal at startup.
+
+Expo startup offers retry when connectivity or secure storage is temporarily unavailable. If the enrolled device key is missing or unusable, startup prompts for password sign-in and fresh enrollment. Registration displays errors and unlocks a prefilled username after a failed registration. Device acceptance remains pending.
+
+On foreground return or network reconnection while active, refresh the registered profile through authenticated bootstrap. If the account type or snapshot version is unsupported, show the existing app-update screen and stop protected activity.
+
+While an active registered session is present, account events trigger a verified bootstrap refresh. Duplicate notifications are ignored, gaps trigger resynchronization, and sign-out or identity replacement closes the event connection. Stream failures do not grant access from cached profile data.
+
+Settings includes a password-change screen for registered accounts. It asks for the current password and matching new passwords, explains session and call effects, and handles a lost response by asking the user to try the new password before the old one. Device and database-backed verification remain pending.
+
+If registration reaches the server but the device cannot save its session, the screen explains that the account may already exist and offers the sign-in path after the user resolves secure-storage access. A lost or unconfirmed server response also advises trying sign-in before another registration attempt.
+
 Use this document as the source prompt for Stitch when generating the first UI screen for the Expo mobile app.
+
+## Maintenance boundary
+
+This file describes Expo UI requirements. Update it when those requirements change. The canonical system architecture is [system.md](../docs/voice-architecture/system.md); update that file and affected flow/protocol/security documents in the same change whenever the architecture changes. Follow the root [repository rules](../AGENTS.md). The separate web app remains deferred until the user explicitly starts that phase.
+
+## Session UI requirements accepted for V2
+
+The registered-history retention period is initially 90 days and may change through backend policy. Display server-supplied retention/expiry information instead of hardcoded 90-day labels. A longer policy cannot restore entries already erased or cleared by the user.
+
+The [user-management execution plan](../docs/voice-architecture/user-management-implementation-plan.md) now supplies the account-module requirements formerly left separate here. Planned screens include mandatory saved-code save acknowledgement; optional unique recovery-email setup and in-app code entry; password change/recovery; editable username with old-name unavailability; session controls; deletion status/cancellation; and explicit logout/profile removal before another account login. No separate display name or MFA initially. Exact discovery exposes minimal current profiles. Add Contact states that it grants future ringing; unknown requests show Accept/Block together without ringing, and acceptance alone does not add a contact. Provide contact removal/block/unblock and clearable 90-day registered history. Distinguish setup, locked storage, offline, recovery required, restricted, pending deletion and terminating states. These are requirements, not verified screens.
+
+Implemented in source with mocked tests: the Recovery screen and reusable `RecoveryCodesPanel`, a mandatory recovery setup screen after v2 enrollment, and password change from Settings. Setup asks for the password to generate codes, requires the user to confirm saving them, and then requests activation. After interruption the user may generate a new set or retry activation if the previous set was already acknowledged. Email setup and the other screens listed above remain pending. Android device and database-backed verification remain pending.
+
+[Session V2](../docs/voice-architecture/session-management-proposed-v2.md) owns behavior; these are proposed UI requirements, not implemented screens. Login method/provider details remain a separate module.
+
+- First entry offers login/register and Skip/Cancel. Guest creation success and UUID display require committed backend authorization and successful protected credential storage.
+- Restore returning credentials through validated bootstrap. Show storage unlock/retry, offline/retry, recovery, restricted and quota-gated states distinctly; never silently allocate another guest.
+- Guests cannot access Contacts or visible call history. Show remaining eligible service/reset information from the backend; deny only exhausted services while others remain usable.
+- When all enabled guest services are exhausted, login/register cannot be skipped into protected main-page activity. Preserve login, eligibility checks, local logout and immediate hangup. Fresh validated allowance restores guest continuation without identity replacement.
+- Show dismissible reminders on first UTC foreground opening and after each completed service. Do not interrupt active calls; coalesce overlapping triggers and let the mandatory gate win. Acknowledge presentation idempotently.
+- Provide session/device status and appropriate revoke/logout controls under the single-profile/one-active-phone policy. Controlled account removal/replacement details require specification; do not imply multiple profiles or automatic call/trust transfer.
+- Logout stops local activity immediately even offline; distinguish local completion from unconfirmed server revocation. No guest creation/recovery immediately after explicit logout.
+- Display structured denial/conflict/rate/busy outcomes without leaking other identities. Cached UI labels and navigation are never authority; local edits cannot unlock backend features.
+
+## Calling UI requirements accepted for V2
+
+The [V2 call plan](../docs/voice-architecture/call_implementation_proposed_v2.md) owns behavior and state; these are proposed UI requirements, not completed screens. The Stitch home-screen prompt below remains a visual reference, not a claim that its contact/navigation flows are wired.
+
+- Distinguish approved direct ringing, unknown non-ringing requests, and code/link joining. Keep invitation code/share visible while waiting; show meaningful cancel/accept/decline/expiry states.
+- Offer equivalent verification link and QR with local full-fingerprint comparison, explicit confirmation, mismatch/changed-key warnings, and previously verified device labels. Never label an account as a verified or safe person.
+- Separate preparing, handshaking, verification, endpoint discovery, connecting, active, reconnecting and terminal states. No microphone capture before the protocol gates and permission pass.
+- Show local mute/output controls, immediate End, End and block, and Report. Explain direct endpoint disclosure before setup. A new-phone login ends the old call; do not offer an automatic transfer.
+- Present specific no-answer, busy, verification-expired, direct-path-unavailable, authorization-ended and device-replaced outcomes. Do not reveal blocked/online details to unauthorized callers.
+- Show recovery rather than an incoming-call prompt during migration. Discard stale media, avoid endless spinners, and preserve responsive controls during native operations.
+- Display elapsed/remaining allowance consistently with server accounting; recovery is separate. Backend outage must not imply a disconnected peer while direct audio and authorization remain valid. Numeric performance guarantees await tests.
+- Maintain safe areas, accessible labels/touch targets, loading/error/cancellation handling and background resource cleanup. Closed-app ringing and broad advanced audio tuning are later phases.
 
 ## What To Select In Stitch Before Prompting
 

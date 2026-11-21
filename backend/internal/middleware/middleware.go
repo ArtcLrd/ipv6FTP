@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -13,6 +14,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/jackc/pgx/v5"
+
 	"ipv6ftp/internal/config"
 	"ipv6ftp/internal/models"
 	"ipv6ftp/internal/rbac"
@@ -21,6 +25,39 @@ import (
 )
 
 type claimsKey struct{}
+
+func authError(w http.ResponseWriter, status int, code string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": http.StatusText(status), "code": code})
+}
+
+func tokenError(w http.ResponseWriter, err error) {
+	if errors.Is(err, jwt.ErrTokenExpired) && !errors.Is(err, jwt.ErrTokenSignatureInvalid) &&
+		!errors.Is(err, jwt.ErrTokenMalformed) && !errors.Is(err, jwt.ErrTokenUnverifiable) &&
+		!errors.Is(err, jwt.ErrTokenInvalidIssuer) && !errors.Is(err, jwt.ErrTokenInvalidAudience) &&
+		!errors.Is(err, jwt.ErrTokenNotValidYet) {
+		authError(w, http.StatusUnauthorized, "ACCESS_EXPIRED")
+		return
+	}
+	authError(w, http.StatusUnauthorized, "SESSION_INVALID")
+}
+
+func sessionError(w http.ResponseWriter, err error) {
+	if errors.Is(err, repository.ErrSetupRestricted) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{
+			"code": "restricted", "message": "Complete account setup first",
+		}})
+		return
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		authError(w, http.StatusUnauthorized, "SESSION_INVALID")
+		return
+	}
+	authError(w, http.StatusServiceUnavailable, "AUTH_UNAVAILABLE")
+}
 
 type SessionValidator interface {
 	ValidateSession(ctx context.Context, principalID, sessionID, deviceID string, authVersion int) error
@@ -52,24 +89,54 @@ func Auth(cfg config.Config, next http.HandlerFunc) http.HandlerFunc {
 }
 
 func AuthWithSession(cfg config.Config, validator SessionValidator, next http.HandlerFunc) http.HandlerFunc {
+	return authWithSession(cfg, validator, false, next)
+}
+
+type setupSessionKey struct{}
+
+func IsSetupSession(ctx context.Context) bool {
+	setup, _ := ctx.Value(setupSessionKey{}).(bool)
+	return setup
+}
+
+func AuthWithSetupSession(cfg config.Config, validator SessionValidator, next http.HandlerFunc) http.HandlerFunc {
+	return authWithSession(cfg, validator, true, next)
+}
+
+func authWithSession(cfg config.Config, validator SessionValidator, allowSetup bool, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token := bearerTokenFromRequest(r)
 		if token == "" {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			authError(w, http.StatusUnauthorized, "SESSION_INVALID")
 			return
 		}
 		claims, err := security.ParseToken([]byte(cfg.JWTSecret), token, "access")
 		if err != nil {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			tokenError(w, err)
+			return
+		}
+		ctx := r.Context()
+		if validator == nil {
+			authError(w, http.StatusServiceUnavailable, "AUTH_UNAVAILABLE")
 			return
 		}
 		if validator != nil {
-			if err := validator.ValidateSession(r.Context(), claims.Sub, claims.SessionID, claims.DeviceID, claims.AuthVersion); err != nil {
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			var err error
+			if scoped, ok := validator.(interface {
+				ValidateSessionState(context.Context, string, string, string, int) (bool, error)
+			}); allowSetup && ok {
+				var setup bool
+				setup, err = scoped.ValidateSessionState(ctx, claims.Sub, claims.SessionID, claims.DeviceID, claims.AuthVersion)
+				ctx = context.WithValue(ctx, setupSessionKey{}, setup)
+			} else {
+				err = validator.ValidateSession(ctx, claims.Sub, claims.SessionID, claims.DeviceID, claims.AuthVersion)
+			}
+			if err != nil {
+				sessionError(w, err)
 				return
 			}
 		}
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), claimsKey{}, claims)))
+		next.ServeHTTP(w, r.WithContext(context.WithValue(ctx, claimsKey{}, claims)))
 	}
 }
 
@@ -77,17 +144,17 @@ func AuthWithPermission(cfg config.Config, validator SessionValidator, cache rep
 	return func(w http.ResponseWriter, r *http.Request) {
 		token := bearerTokenFromRequest(r)
 		if token == "" {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			authError(w, http.StatusUnauthorized, "SESSION_INVALID")
 			return
 		}
 		claims, err := security.ParseToken([]byte(cfg.JWTSecret), token, "access")
 		if err != nil {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			tokenError(w, err)
 			return
 		}
 		if validator != nil {
 			if err := validator.ValidateSession(r.Context(), claims.Sub, claims.SessionID, claims.DeviceID, claims.AuthVersion); err != nil {
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				sessionError(w, err)
 				return
 			}
 		}

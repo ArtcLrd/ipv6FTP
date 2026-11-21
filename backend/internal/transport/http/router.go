@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"log/slog"
 
 	"ipv6ftp/internal/config"
@@ -15,6 +16,7 @@ import (
 )
 
 type RouterDeps struct {
+	Pool        *pgxpool.Pool
 	Config      config.Config
 	Logger      *slog.Logger
 	Auth        *service.AuthService
@@ -28,71 +30,133 @@ type RouterDeps struct {
 	UserRepo    repository.UserRepo
 	ContactRepo repository.ContactRepo
 	Validator   middleware.SessionValidator
+	// AccountSecurity may be nil (secrets not configured); the routes then answer "unavailable".
+	AccountSecurity handlers.AccountSecurityAPI
+	// AccountLifecycle is nil when account security is not configured; its routes answer "unavailable".
+	AccountLifecycle handlers.AccountLifecycleAPI
+	// AuthV2 is nil unless NOISE_STATIC_KEY is configured; its routes answer "unavailable".
+	AuthV2 handlers.AuthV2API
 }
 
 func NewRouter(deps RouterDeps) http.Handler {
 	authHandler := handlers.NewAuthHandler(deps.Config, deps.Auth)
-	userHandler := handlers.NewUserHandler(deps.Config, deps.User, deps.Broker)
-	phonebookHandler := handlers.NewPhonebookHandler(deps.Config, deps.Phonebook)
 	callHandler := handlers.NewCallHandler(deps.Config, deps.Call, deps.Signals, deps.Validator)
-	roomHandler := handlers.NewRoomHandler(deps.Config, deps.Hub, deps.Broker, deps.UserRepo, deps.ContactRepo, deps.Cache)
 
 	mux := http.NewServeMux()
-	permit := func(permission string, next http.HandlerFunc) http.HandlerFunc {
-		return middleware.AuthWithPermission(deps.Config, deps.Validator, deps.Cache, permission, next)
+	authenticated := func(next http.HandlerFunc) http.HandlerFunc {
+		return middleware.AuthWithSession(deps.Config, deps.Validator, next)
+	}
+	setupAllowed := func(next http.HandlerFunc) http.HandlerFunc {
+		return middleware.AuthWithSetupSession(deps.Config, deps.Validator, next)
 	}
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		handlers.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
-	mux.HandleFunc("/api/myip", roomHandler.MyIP)
-	mux.HandleFunc("/api/turn-credentials", permit("turn:read", roomHandler.TURNCredentials))
-	mux.HandleFunc("/api/auth/register", authHandler.Register)
-	mux.HandleFunc("/api/auth/login", authHandler.Login)
-	mux.HandleFunc("/api/auth/check-username", authHandler.CheckUsername)
-	mux.HandleFunc("/api/auth/refresh", authHandler.Refresh)
-	mux.HandleFunc("/api/auth/logout", permit("auth:logout", authHandler.Logout))
-	mux.HandleFunc("/api/auth/me", permit("profile:read", authHandler.Me))
-	mux.HandleFunc("/api/v1/auth/guest/bootstrap", authHandler.BootstrapGuest)
-	mux.HandleFunc("/api/v1/auth/register", authHandler.Register)
-	mux.HandleFunc("/api/v1/auth/login", authHandler.Login)
+	legacyIssuance := func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			if deps.Config.V1CredentialIssuance == "upgrade_required" {
+				handlers.WriteJSON(w, http.StatusUpgradeRequired, map[string]any{"error": map[string]string{
+					"code": "upgrade_required", "message": "Update the app to continue",
+				}})
+				return
+			}
+			next(w, r)
+		}
+	}
+	mux.HandleFunc("/api/v1/auth/register", legacyIssuance(authHandler.Register))
+	mux.HandleFunc("/api/v1/auth/login", legacyIssuance(authHandler.Login))
 	mux.HandleFunc("/api/v1/auth/check-username", authHandler.CheckUsername)
-	mux.HandleFunc("/api/v1/auth/refresh", authHandler.Refresh)
-	mux.HandleFunc("/api/v1/auth/logout", permit("auth:logout", authHandler.Logout))
-	mux.HandleFunc("/api/v1/auth/me", permit("profile:read", authHandler.Me))
-	mux.HandleFunc("/api/v1/prompts", permit("prompts:read", authHandler.PendingPrompts))
-	mux.HandleFunc("/api/v1/prompts/actions", permit("prompts:write", authHandler.RecordPromptAction))
-	mux.HandleFunc("/api/v1/turn/credentials", permit("turn:read", roomHandler.TURNCredentials))
-	mux.HandleFunc("/api/v1/calls/invitations", permit("calls:create", callHandler.CreateInvitation))
-	mux.HandleFunc("/api/v1/calls/join", permit("calls:join", callHandler.Join))
-	mux.HandleFunc("/api/v1/calls/usage/today", permit("calls:read_usage", callHandler.UsageToday))
-	mux.HandleFunc("/api/v1/calls/", permit("calls:update_state", func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/start") {
-			callHandler.Start(w, r)
-			return
-		}
-		if strings.HasSuffix(r.URL.Path, "/end") {
-			callHandler.End(w, r)
-			return
-		}
-		if strings.HasSuffix(r.URL.Path, "/signal") {
-			callHandler.WebSocket(w, r)
-			return
-		}
-		http.NotFound(w, r)
+	mux.HandleFunc("/api/v1/auth/refresh", legacyIssuance(authHandler.Refresh))
+	mux.HandleFunc("/api/v1/auth/logout", authenticated(authHandler.Logout))
+	mux.HandleFunc("/api/v1/auth/me", authenticated(authHandler.Me))
+	mux.HandleFunc("/api/v1/auth/sessions", authenticated(authHandler.Sessions))
+	mux.HandleFunc("/api/v1/auth/sessions/", authenticated(authHandler.RevokeSession))
+	// v2 account security. Recovery is unauthenticated by design (the user has lost their
+	// password); everything else needs a session. See docs/voice-architecture/user-management-contracts-v2.md.
+	account := handlers.NewAccountSecurityHandler(deps.AccountSecurity, deps.Logger)
+	mux.HandleFunc("/api/v2/recovery/begin", account.RecoveryBegin)
+	mux.HandleFunc("/api/v2/recovery/prove", account.RecoveryProve)
+	mux.HandleFunc("/api/v2/recovery/complete", account.RecoveryComplete)
+	mux.HandleFunc("/api/v2/account/reauth", setupAllowed(account.Reauth))
+	mux.HandleFunc("/api/v2/account/password", authenticated(account.ChangePassword))
+	mux.HandleFunc("/api/v2/account/recovery-codes", setupAllowed(account.RegenerateRecoveryCodes))
+	mux.HandleFunc("/api/v2/account/email/challenge", authenticated(account.EmailChallenge))
+	mux.HandleFunc("/api/v2/account/email/verify", authenticated(account.EmailVerify))
+	mux.HandleFunc("/api/v2/auth/setup/ack-recovery-codes", setupAllowed(account.AckRecoveryCodes))
+	// v2 profile lifecycle. Deletion status/cancel are credentialed (not session based) because
+	// requesting deletion revokes every session.
+	life := handlers.NewAccountLifecycleHandler(deps.AccountLifecycle, deps.Logger)
+	mux.HandleFunc("/api/v2/account/profile", authenticated(life.Profile))
+	mux.HandleFunc("/api/v2/usernames/availability", life.UsernameAvailability)
+	mux.HandleFunc("/api/v2/account/username", authenticated(life.ChangeUsername))
+	mux.HandleFunc("/api/v2/account/deletion", authenticated(life.RequestDeletion))
+	mux.HandleFunc("/api/v2/account/deletion/status", life.DeletionStatus)
+	mux.HandleFunc("/api/v2/account/deletion/cancel", life.CancelDeletion)
+	mux.HandleFunc("/api/v2/account/sessions", authenticated(life.Sessions))
+	mux.HandleFunc("/api/v2/account/sessions/revoke", authenticated(life.RevokeSession))
+	mux.HandleFunc("/api/v2/auth/logout-all", authenticated(life.LogoutAll))
+	// v2 enrollment, bootstrap, refresh and logout.
+	authV2 := handlers.NewAuthV2Handler(deps.AuthV2, deps.Logger)
+	mux.HandleFunc("/api/v2/auth/registered/begin", authV2.RegisteredBegin)
+	mux.HandleFunc("/api/v2/auth/setup/resume", authV2.SetupResume)
+	mux.HandleFunc("/api/v2/auth/server-key", authV2.ServerKey)
+	mux.HandleFunc("/api/v2/auth/enroll/challenge", authV2.EnrollChallenge)
+	mux.HandleFunc("/api/v2/auth/enroll/finish", authV2.EnrollFinish)
+	mux.HandleFunc("/api/v2/auth/setup/activate", setupAllowed(authV2.Activate))
+	mux.HandleFunc("/api/v2/auth/bootstrap", setupAllowed(authV2.Bootstrap))
+	events := handlers.NewAccountEvents(deps.Pool, deps.Validator)
+	mux.HandleFunc("/api/v2/events/snapshot", authenticated(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		q.Set("snapshot", "extended")
+		q.Set("include", "device_key_fingerprint")
+		r.URL.RawQuery = q.Encode()
+		authV2.Bootstrap(w, r)
 	}))
-	mux.HandleFunc("/api/ip/update", permit("presence:write", userHandler.UpdateIP))
-	mux.HandleFunc("/api/users/search", permit("users:search", userHandler.Search))
-	mux.HandleFunc("/api/contacts", permit("contacts:read", userHandler.Contacts))
-	mux.HandleFunc("/api/contacts/", permit("contacts:write", userHandler.DeleteContact))
-	mux.HandleFunc("/api/rooms/create", permit("rooms:create", roomHandler.CreateRoom))
-	mux.HandleFunc("/api/rooms/invite", permit("rooms:invite", roomHandler.Invite))
-	mux.HandleFunc("/api/events", permit("events:read", userHandler.SSEEvents))
-	mux.HandleFunc("/api/v1/phonebook/heartbeat", permit("presence:write", phonebookHandler.Heartbeat))
-	mux.HandleFunc("/api/v1/phonebook/pubkey", permit("presence:write", phonebookHandler.UpdatePublicKey))
-	mux.HandleFunc("/api/v1/phonebook/", permit("presence:read", phonebookHandler.Lookup))
-	mux.HandleFunc("/api/v1/admin/lockdown", permit("admin:lockdown", roomHandler.AdminLockdown))
-	mux.HandleFunc("/ws", roomHandler.WebSocket)
+	mux.HandleFunc("/api/v2/events/ticket", authenticated(events.Ticket))
+	mux.HandleFunc("/api/v2/events/stream", events.Stream)
+	mux.HandleFunc("/api/v2/auth/refresh", authV2.Refresh)
+	mux.HandleFunc("/api/v2/auth/logout", setupAllowed(authV2.Logout))
+	mux.HandleFunc("/api/v1/calls", authenticated(callHandler.Create))
+	mux.HandleFunc("/api/v1/calls/join", authenticated(callHandler.Join))
+	mux.HandleFunc("/api/v1/calls/", func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/api/v1/calls/")
+		parts := strings.Split(strings.Trim(path, "/"), "/")
+		if len(parts) < 1 || parts[0] == "" {
+			http.NotFound(w, r)
+			return
+		}
+		callID := parts[0]
+		if len(parts) == 2 && parts[1] == "signal" {
+			callHandler.WebSocket(w, r, callID)
+			return
+		}
+		authenticated(func(w http.ResponseWriter, r *http.Request) {
+			if len(parts) == 1 && r.Method == http.MethodGet {
+				callHandler.Get(w, r, callID)
+				return
+			}
+			if len(parts) != 2 || r.Method != http.MethodPost {
+				http.NotFound(w, r)
+				return
+			}
+			switch parts[1] {
+			case "accept":
+				callHandler.Accept(w, r, callID)
+			case "state":
+				callHandler.SetState(w, r, callID)
+			case "end":
+				callHandler.End(w, r, callID)
+			case "signal-ticket":
+				callHandler.SignalTicket(w, r, callID)
+			case "direct-ticket":
+				callHandler.DirectTicket(w, r, callID)
+			default:
+				http.NotFound(w, r)
+			}
+		})(w, r)
+	})
 
-	stack := middleware.Recovery(deps.Logger, middleware.Logging(deps.Logger, middleware.CORS(deps.Config, middleware.RateLimit(deps.Config, deps.Cache, middleware.Lockdown(deps.Config, deps.Cache, mux)))))
+	publicLimited := limitPublicOperations(deps.Config.PublicAuthIPPerMinute, deps.Config.PublicAuthScopePerMinute, mux)
+	stack := middleware.Recovery(deps.Logger, middleware.Logging(deps.Logger, middleware.CORS(deps.Config, middleware.RateLimit(deps.Config, deps.Cache, middleware.Lockdown(deps.Config, deps.Cache, publicLimited)))))
 	return stack
 }

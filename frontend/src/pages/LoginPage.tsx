@@ -1,13 +1,32 @@
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
+import { Alert } from 'react-native';
+import { readRetainedProfile } from '../core/storage/secure';
+import { removeSignedOutProfile } from '../modules/auth/api';
 import { useLogin, useCheckUsername } from "../modules/auth/hooks";
 import { getApiErrorMessage } from "../core/api/appErrors";
 import { logger } from "../core/logger/logger";
 import { LoginPageView, LoginPageViewRef } from "./LoginPageView";
+import { useAuthStore } from '../modules/auth/store';
 
 export function LoginPage({ navigation }: any) {
   const [step, setStep] = useState<"username" | "password">("username");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [hasRetainedProfile, setHasRetainedProfile] = useState(false);
+  useEffect(() => { void readRetainedProfile().then((profile) => setHasRetainedProfile(!!profile)).catch(() => setHasRetainedProfile(true)); }, []);
+  const tryRemoveProfile = useCallback(async () => {
+    try {
+      await removeSignedOutProfile();
+      setHasRetainedProfile(false);
+    } catch {
+      if (useAuthStore.getState().sessionStatus === 'signed_out') {
+        Alert.alert('Could not remove profile', 'Unlock secure storage and try again.', [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Retry', onPress: () => { void tryRemoveProfile(); } },
+        ]);
+      }
+    }
+  }, []);
 
   const viewRef = useRef<LoginPageViewRef>(null);
 
@@ -46,6 +65,7 @@ export function LoginPage({ navigation }: any) {
       { username: username.trim(), password },
       {
         onSuccess: () => {
+          if (useAuthStore.getState().sessionStatus !== 'authenticated') return;
           if (typeof navigation.reset === "function") {
             navigation.reset({ index: 0, routes: [{ name: "MainTabs" }] });
           } else {
@@ -103,6 +123,11 @@ export function LoginPage({ navigation }: any) {
       onLogin={handleLogin}
       onRegister={handleRegister}
       onBackToUsername={handleBackToUsername}
+      onForgotPassword={() => navigation.navigate("Recovery")}
+      onRemoveProfile={hasRetainedProfile ? () => Alert.alert('Remove profile from this device?', 'This removes the saved keys and trusted peers for this profile.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Remove profile', style: 'destructive', onPress: () => { void tryRemoveProfile(); } },
+      ]) : undefined}
     />
   );
 }

@@ -1,5 +1,4 @@
 import { WS_URL } from '../config/env';
-import { getTokens } from '../core/storage/secure';
 import { logger } from '../core/logger/logger';
 
 type MessageHandler = (data: any) => void;
@@ -7,48 +6,35 @@ type MessageHandler = (data: any) => void;
 class WebSocketManager {
   private ws: WebSocket | null = null;
   private outbox: string[] = [];
-  private reconnectDelay = 200;
-  private maxDelay = 10000;
   private url: string = '';
   private roomID: string | null = null;
   private listeners = new Map<string, Set<MessageHandler>>();
   private pingInterval: any = null;
+  private pendingWaits = new Set<() => void>();
 
-  connect(roomID: string) {
-    if (this.roomID === roomID && this.ws?.readyState === WebSocket.OPEN) {
-      return;
-    }
-    this.disconnect();
-    this.roomID = roomID;
-    this.url = `${WS_URL}/ws?room=${encodeURIComponent(roomID)}`;
-    this._connect();
-  }
-
-  async connectCall(callSessionID: string) {
-    const tokens = await getTokens();
-    if (!tokens?.accessToken) {
-      throw new Error('Missing access token');
-    }
+  async connectCall(callSessionID: string, ticket: string) {
     this.disconnect();
     this.roomID = callSessionID;
-    this.url = `${WS_URL}/api/v1/calls/${encodeURIComponent(callSessionID)}/signal?access_token=${encodeURIComponent(tokens.accessToken)}`;
+    this.url = `${WS_URL}/api/v1/calls/${encodeURIComponent(callSessionID)}/signal?ticket=${encodeURIComponent(ticket)}`;
     this._connect();
   }
 
   private _connect() {
     if (!this.url) return;
-    logger.info('Connecting to WebSocket...', this.url);
-    this.ws = new WebSocket(this.url);
+    logger.info('Connecting authenticated call setup socket');
+    const socket = new WebSocket(this.url);
+    this.ws = socket;
 
-    this.ws.onopen = () => {
+    socket.onopen = () => {
+      if (this.ws !== socket) return;
       logger.info('WebSocket Connected');
-      this.reconnectDelay = 200;
       this._startPing();
       this._drainOutbox();
       this._emit('open', {});
     };
 
-    this.ws.onmessage = (event) => {
+    socket.onmessage = (event) => {
+      if (this.ws !== socket) return;
       try {
         const data = JSON.parse(event.data);
         if (data.type) {
@@ -60,25 +46,18 @@ class WebSocketManager {
       }
     };
 
-    this.ws.onclose = (event) => {
+    socket.onclose = (event) => {
+      if (this.ws !== socket) return;
       logger.warn('WebSocket Closed', event.code, event.reason);
       this._stopPing();
-      this._reconnect();
       this._emit('close', event);
     };
 
-    this.ws.onerror = (error) => {
+    socket.onerror = (error) => {
+      if (this.ws !== socket) return;
       logger.error('WebSocket Error', error);
       this._emit('error', error);
     };
-  }
-
-  private _reconnect() {
-    if (!this.url) return;
-    setTimeout(() => {
-      this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxDelay);
-      this._connect();
-    }, this.reconnectDelay);
   }
 
   private _startPing() {
@@ -127,15 +106,24 @@ class WebSocketManager {
     }
 
     return new Promise<any>((resolve, reject) => {
+      const cancel = () => {
+        clearTimeout(timeout);
+        unsubscribe();
+        this.pendingWaits.delete(cancel);
+        reject(new Error('Socket disconnected'));
+      };
       const timeout = setTimeout(() => {
         unsubscribe();
+        this.pendingWaits.delete(cancel);
         reject(new Error(`Timed out waiting for ${type}`));
       }, timeoutMs);
       const unsubscribe = this.on(type, (data) => {
         clearTimeout(timeout);
         unsubscribe();
+        this.pendingWaits.delete(cancel);
         resolve(data);
       });
+      this.pendingWaits.add(cancel);
     });
   }
 
@@ -151,6 +139,7 @@ class WebSocketManager {
     if (this.ws) {
       this.ws.close();
     }
+    this._emit('reconnect-required', {});
   }
 
   disconnect() {
@@ -158,8 +147,12 @@ class WebSocketManager {
     this.roomID = null;
     this.outbox = [];
     this._stopPing();
+    for (const cancel of this.pendingWaits) cancel();
     if (this.ws) {
-      this.ws.onclose = null; // Prevent auto-reconnect
+      this.ws.onopen = null;
+      this.ws.onmessage = null;
+      this.ws.onerror = null;
+      this.ws.onclose = null;
       this.ws.close();
       this.ws = null;
     }

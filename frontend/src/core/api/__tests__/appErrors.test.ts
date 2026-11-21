@@ -1,7 +1,33 @@
 import axios from 'axios';
 import { AppError, normalizeError, getApiErrorMessage, ERROR_COPY } from '../appErrors';
+import { CredentialStorageError } from '../../storage/secure';
 
 describe('AppError normalization', () => {
+  it.each(['quota_exhausted', 'pending_operation', 'rate_limited'])('preserves structured %s timing without trusting the message', (code) => {
+    const error = new axios.AxiosError('request failed', undefined, undefined, undefined, {
+      status: code === 'pending_operation' ? 409 : 429, statusText: '', headers: { 'retry-after': '45' }, config: {} as any,
+      data: { error: { code, message: '<script>bad</script>', retry_after_seconds: 30, reset_at: '2026-11-15T00:00:00Z' } },
+    });
+    const result = normalizeError(error);
+    expect(result.code).toBe(code);
+    expect(result.retryAfterSeconds).toBe(30);
+    expect(result.resetAt).toBe('2026-11-15T00:00:00Z');
+    expect(result.message).not.toContain('<script>');
+  });
+  it('shows update guidance for the legacy cutover response', () => {
+    const error = new axios.AxiosError('Upgrade required', undefined, undefined, undefined, {
+      status: 426, statusText: 'Upgrade Required', headers: {}, config: {} as any,
+      data: { error: { code: 'upgrade_required', message: 'Update the app to continue' } },
+    });
+    const result = normalizeError(error);
+    expect(result.code).toBe('UPGRADE_REQUIRED');
+    expect(result.message).toBe('Update the app to continue.');
+  });
+  it('provides actionable secure-storage guidance without exposing raw storage errors', () => {
+    const result = normalizeError(new CredentialStorageError('unavailable'));
+    expect(result.message).toContain('Unlock your device');
+    expect(result.code).toBe('SECURE_STORAGE');
+  });
   it('should return the same AppError if passed directly', () => {
     const original = new AppError('test error', 'unexpected', 'TEST_CODE');
     const normalized = normalizeError(original);

@@ -1,17 +1,10 @@
 import client from '../../core/api/client';
-
-export interface IceServer {
-  urls: string | string[];
-  username?: string;
-  credential?: string;
-}
+import type { CallSession } from './types';
 
 export interface CallInvitation {
   call_session_id: string;
   participant_id: string;
   invitation_id: string;
-  link_token: string;
-  join_url?: string;
   fallback_code: string;
   policy_mode: string;
   allowed_seconds?: number;
@@ -21,34 +14,26 @@ export interface CallInvitation {
 export interface JoinCallResponse {
   call_session_id: string;
   participant_id: string;
-  media_type: string;
-  network_family: string;
+  media_type: 'voice';
+  connection_route: 'direct_ipv6';
   policy_mode: string;
+  state: 'awaiting_acceptance';
   allowed_seconds?: number;
 }
 
-export async function createRoom(): Promise<string> {
-  const { data } = await client.post<{ room_id: string }>('/api/rooms/create');
-  return data.room_id;
+export interface SignalTicket { ticket: string; expires_at: string }
+export interface DirectTicketResponse {
+  ticket_id: string;
+  secret: string;
+  rendezvous_host: string;
+  rendezvous_port: number;
+  expires_at: string;
 }
 
-export async function sendRoomInvite(contactID: string, roomID: string, type = 'call'): Promise<void> {
-  await client.post('/api/rooms/invite', {
-    contact_id: contactID,
-    room_id: roomID,
-    type,
-  });
-}
-
-export async function getTurnServers(): Promise<IceServer[]> {
-  const { data } = await client.get<{ servers: IceServer[] }>('/api/v1/turn/credentials');
-  return data.servers ?? [];
-}
-
-export async function createCallInvitation(mediaType = 'voice'): Promise<CallInvitation> {
-  const { data } = await client.post<CallInvitation>('/api/v1/calls/invitations', {
-    media_type: mediaType,
-    network_family: 'ipv6',
+export async function createCall(): Promise<CallInvitation> {
+  const { data } = await client.post<CallInvitation>('/api/v1/calls', {
+    media_type: 'voice',
+    connection_route: 'direct_ipv6',
   });
   return data;
 }
@@ -58,13 +43,27 @@ export async function joinCallByCode(code: string): Promise<JoinCallResponse> {
   return data;
 }
 
-export async function joinCallByToken(token: string): Promise<JoinCallResponse> {
-  const { data } = await client.post<JoinCallResponse>('/api/v1/calls/join', { token });
+export async function getCall(callID: string): Promise<CallSession> {
+  const { data } = await client.get<CallSession>(`/api/v1/calls/${encodeURIComponent(callID)}`);
   return data;
 }
 
-export async function markCallStarted(callSessionID: string): Promise<void> {
-  await client.post(`/api/v1/calls/${encodeURIComponent(callSessionID)}/start`);
+export async function acceptCall(callID: string): Promise<void> {
+  await client.post(`/api/v1/calls/${encodeURIComponent(callID)}/accept`);
+}
+
+export async function setCallLifecycle(callID: string, state: 'verifying' | 'connecting' | 'active'): Promise<void> {
+  await client.post(`/api/v1/calls/${encodeURIComponent(callID)}/state`, { state });
+}
+
+export async function requestSignalTicket(callID: string): Promise<SignalTicket> {
+  const { data } = await client.post<SignalTicket>(`/api/v1/calls/${encodeURIComponent(callID)}/signal-ticket`);
+  return data;
+}
+
+export async function requestDirectTicket(callID: string): Promise<DirectTicketResponse> {
+  const { data } = await client.post<DirectTicketResponse>(`/api/v1/calls/${encodeURIComponent(callID)}/direct-ticket`);
+  return data;
 }
 
 export async function endCallSession(callSessionID: string, reason = 'normal'): Promise<void> {

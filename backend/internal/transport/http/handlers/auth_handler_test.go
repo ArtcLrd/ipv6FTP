@@ -5,10 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"ipv6ftp/internal/config"
 	"ipv6ftp/internal/middleware"
@@ -16,6 +19,42 @@ import (
 	"ipv6ftp/internal/repository"
 	"ipv6ftp/internal/service"
 )
+
+type failingRefreshIdentityRepo struct {
+	repository.IdentityRepo
+	err error
+}
+
+func (r failingRefreshIdentityRepo) RotateRefreshToken(context.Context, string, string, string, string, string, time.Time) (models.User, string, error) {
+	return models.User{}, "", r.err
+}
+
+func TestRefreshHTTPDistinguishesRejectedFromUncertain(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		err    error
+		status int
+	}{
+		{"invalid token", pgx.ErrNoRows, http.StatusUnauthorized},
+		{"database failure", errors.New("private database detail"), http.StatusInternalServerError},
+		{"committed rotation", fmt.Errorf("%w: %v", repository.ErrRefreshRotationCommitted, pgx.ErrNoRows), http.StatusInternalServerError},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := config.Config{JWTSecret: "secret"}
+			svc := service.NewProductionAuthService(cfg, failingRefreshIdentityRepo{err: tc.err}, nil, nil, nil, nil, nil)
+			h := NewAuthHandler(cfg, svc)
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", bytes.NewBufferString(`{"refresh_token":"test-token"}`))
+			response := httptest.NewRecorder()
+			h.Refresh(response, req)
+			if response.Code != tc.status {
+				t.Fatalf("status = %d, want %d", response.Code, tc.status)
+			}
+			if bytes.Contains(response.Body.Bytes(), []byte("private database detail")) {
+				t.Fatal("response leaked database details")
+			}
+		})
+	}
+}
 
 type fakeUserRepo struct {
 	byID    map[string]models.User

@@ -11,7 +11,6 @@ import {
 } from "react-native";
 import { useRegister } from "../modules/auth/hooks";
 import { getApiErrorMessage } from "../core/api/errors";
-import { logger } from "../core/logger/logger";
 import { Theme } from "../theme";
 import { BrandColors } from "../theme/colors";
 import { GlassInput } from "../components/GlassInput";
@@ -19,6 +18,10 @@ import { GlassButton } from "../components/GlassButton";
 import { GridBackground } from "../components/GridBackground";
 import { Ionicons } from "@expo/vector-icons";
 import { InlineError } from "../components/InlineError";
+import { CredentialStorageError } from "../core/storage/secure";
+import axios from "axios";
+import { ZodError } from "zod";
+import { newPassword, newUsername } from '../core/api/contractsV2';
 
 const { width: SCREEN_W } = Dimensions.get("window");
 const CARD_W = Math.min(SCREEN_W * 0.88, 400);
@@ -27,7 +30,8 @@ const CARD_PADDING = 28;
 export function RegisterPage({ navigation, route }: any) {
   // Username may be pre-filled (and locked) when coming from the smart login flow
   const prefillUsername: string = route?.params?.username ?? "";
-  const isUsernameLocked = prefillUsername.length > 0;
+  const [isUsernameLocked, setUsernameLocked] = useState(prefillUsername.length > 0);
+  const [errorMessage, setErrorMessage] = useState('');
 
   const [username, setUsername] = useState(prefillUsername);
   const [password, setPassword] = useState("");
@@ -53,32 +57,30 @@ export function RegisterPage({ navigation, route }: any) {
   }, [fadeAnim, slideAnim]);
 
   const handleRegister = () => {
-    if (username.trim().length < 3) {
-      // Validation failure — silent, no UI error shown
+    setErrorMessage('');
+    if (!newUsername.safeParse(username.trim().toLowerCase()).success) {
+      setErrorMessage('Use 3–30 letters, numbers or underscores for your username.');
       return;
     }
-    if (password.length < 8) {
-      // Validation failure — silent, no UI error shown
+    if (!newPassword.safeParse(password).success) {
+      setErrorMessage('Password must be 15–128 characters and at most 512 bytes.');
       return;
     }
     registerMutation.mutate(
       { username: username.trim(), password },
       {
-        onSuccess: () => {
-          navigation.reset({ index: 0, routes: [{ name: "MainTabs" }] });
-        },
+        onSuccess: () => {},
         onError: (error) => {
-          logger.error(
-            "Registration failed",
-            getApiErrorMessage(error, "Registration failed."),
-          );
+          setUsernameLocked(false);
+          setErrorMessage(error instanceof CredentialStorageError
+            ? 'Your account may have been created, but this device could not save the session. Unlock your device, then try signing in.'
+            : (error instanceof ZodError || (axios.isAxiosError(error) && (!error.response || error.response.status >= 500)))
+            ? 'Registration could not be confirmed. Your account may have been created; check your connection and try signing in before registering again.'
+            : getApiErrorMessage(error, 'Registration failed. Check your connection and try again.'));
         },
       },
     );
   };
-
-  // Errors are logged only — not shown on the UI.
-  // In the future, an opt-in recording feature will capture and report errors.
 
   return (
     <GridBackground>
@@ -185,7 +187,7 @@ export function RegisterPage({ navigation, route }: any) {
                   {/* Password field */}
                   <View style={styles.inputGroup}>
                     <GlassInput
-                      placeholder="Password (min 8 chars)"
+                      placeholder="Password (min 15 chars)"
                       value={password}
                       onChangeText={(val) => {
                         setPassword(val);
@@ -197,12 +199,12 @@ export function RegisterPage({ navigation, route }: any) {
                     />
                     <InlineError
                       type="validation"
-                      message="Password must be at least 8 characters."
-                      visible={password.length > 0 && password.length < 8}
+                        message="Password must be at least 15 characters."
+                        visible={password.length > 0 && Array.from(password).length < 15}
                     />
                   </View>
 
-                  {/* Errors are not shown on the UI — see logger for details */}
+                  <InlineError type="validation" message={errorMessage} visible={!!errorMessage} />
 
                   <View style={styles.spacer} />
 

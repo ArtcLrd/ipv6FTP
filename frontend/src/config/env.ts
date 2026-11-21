@@ -2,17 +2,6 @@ import Constants from 'expo-constants';
 
 const normalizeUrl = (url: string) => url.trim().replace(/\/+$/, '');
 
-const ICE_MODES = ['ipv6-direct', 'stun', 'turn'] as const;
-export type IceMode = (typeof ICE_MODES)[number];
-
-const getIceMode = (): IceMode => {
-  const configuredMode = process.env.EXPO_PUBLIC_ICE_MODE?.trim().toLowerCase();
-  if (ICE_MODES.includes(configuredMode as IceMode)) {
-    return configuredMode as IceMode;
-  }
-  return 'stun';
-};
-
 /**
  * EXPO_PUBLIC_BACKEND_URL is the preferred value for ngrok/local backend URLs.
  * EXPO_PUBLIC_API_BASE_URL is kept as a backwards-compatible alias.
@@ -26,8 +15,17 @@ const getBaseUrl = () => {
     process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
 
   if (configuredUrl) {
-    return normalizeUrl(configuredUrl);
+    const normalized = normalizeUrl(configuredUrl);
+    let parsed: URL;
+    try { parsed = new URL(normalized); } catch { throw new Error('Backend URL must be a valid HTTP(S) origin.'); }
+    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash) {
+      throw new Error('Backend URL must be an HTTP(S) origin without credentials or a path.');
+    }
+    if (!__DEV__ && parsed.protocol !== 'https:') throw new Error('Production requires an HTTPS backend origin.');
+    return normalized;
   }
+
+  if (!__DEV__) throw new Error('Production requires an explicit HTTPS backend origin.');
 
   const debuggerHost = Constants.expoConfig?.hostUri;
   const address = debuggerHost ? debuggerHost.split(':')[0] : 'localhost';
@@ -37,7 +35,6 @@ const getBaseUrl = () => {
 export const API_BASE_URL = getBaseUrl();
 export const BACKEND_URL = API_BASE_URL;
 export const WS_URL = API_BASE_URL.replace(/^http/, 'ws');
-export const ICE_MODE = getIceMode();
 
 export const APP_CONFIG = {
   TIMEOUT: 10000,

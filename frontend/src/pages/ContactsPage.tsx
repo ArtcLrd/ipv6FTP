@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../modules/auth/hooks';
 import { useContacts } from '../modules/contacts/hooks';
-import { webrtcManager } from '../modules/call/webrtc';
 import { Contact } from '../modules/contacts/types';
 import { useContactsUIStore } from '../state/contactsUIStore';
 import { useIpv6Status } from '../hooks/useIpv6Status';
@@ -16,8 +15,8 @@ export function ContactsPage({ navigation }: any) {
   const { hasIpv6 } = useIpv6Status();
   const { activeFilter } = useContactsUIStore();
 
-  const startCall = (contact: Contact) => {
-    webrtcManager.startCall(contact);
+  const startCall = (_contact: Contact) => {
+    navigation.navigate('Calls');
   };
 
   const filteredContacts = (contacts || []).filter((c) => {
@@ -62,4 +61,3 @@ export function ContactsPage({ navigation }: any) {
     />
   );
 }
-

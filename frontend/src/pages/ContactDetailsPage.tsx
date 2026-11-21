@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, Platform } from 'react-native';
 import { useDeleteContact } from '../modules/contacts/hooks';
-import { webrtcManager } from '../modules/call/webrtc';
 import { Theme } from '../theme';
 import { Avatar } from '../components/Avatar';
 import { Ionicons } from '@expo/vector-icons';
@@ -29,7 +28,7 @@ export function ContactDetailsPage({ route, navigation }: any) {
   }
 
   const handleStartCall = () => {
-    webrtcManager.startCall(contact);
+    navigation.navigate('MainTabs', { screen: 'Calls' });
   };
 
   const handleDeleteConfirm = () => {

@@ -1,0 +1,6 @@
+{
+  "platforms": ["android"],
+  "android": {
+    "modules": ["expo.modules.ipv6voice.VoiceEngineModule"]
+  }
+}

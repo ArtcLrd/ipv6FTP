@@ -1,11 +1,17 @@
 import React from 'react';
+jest.mock('../../modules/auth/api', () => ({ removeSignedOutProfile: jest.fn() }));
+jest.mock('../../core/storage/secure', () => ({ readRetainedProfile: jest.fn().mockResolvedValue(null) }));
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { LoginPage } from '../LoginPage';
 import { useCheckUsername, useLogin } from '../../modules/auth/hooks';
 import { ERROR_COPY, AppError } from '../../core/api/appErrors';
+import { Alert } from 'react-native';
+import { readRetainedProfile } from '../../core/storage/secure';
+import { removeSignedOutProfile } from '../../modules/auth/api';
+import { useAuthStore } from '../../modules/auth/store';
 
 // Mock the hooks
-jest.mock('../../modules/auth/hooks');
+jest.mock('../../modules/auth/hooks', () => ({ useCheckUsername: jest.fn(), useLogin: jest.fn() }));
 
 // Mock Ionicons
 jest.mock('@expo/vector-icons', () => ({
@@ -52,6 +58,23 @@ describe('LoginPage Component', () => {
       reset: mockLoginReset,
     });
   });
+
+  it('offers retry when the retained profile cannot be read during removal', async () => {
+    (readRetainedProfile as jest.Mock).mockResolvedValueOnce({ principalId: 'one', scope: 'principal:one', username: 'alice' });
+    (removeSignedOutProfile as jest.Mock).mockRejectedValueOnce(new Error('locked')).mockResolvedValueOnce(undefined);
+    useAuthStore.getState().clearAuth();
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+    const view = render(<LoginPage navigation={mockNavigation} />);
+    await waitFor(() => expect(view.getByText('Remove profile from this device')).toBeTruthy());
+    fireEvent.press(view.getByText('Remove profile from this device'));
+    const confirm = alert.mock.calls[0][2]![1];
+    confirm.onPress!();
+    await waitFor(() => expect(alert).toHaveBeenCalledTimes(2));
+    expect(alert.mock.calls[1][0]).toBe('Could not remove profile');
+    alert.mock.calls[1][2]![1].onPress!();
+    await waitFor(() => expect(removeSignedOutProfile).toHaveBeenCalledTimes(2));
+    alert.mockRestore();
+  }, 20000);
 
   it('should render the Username step initially', () => {
     const { getByPlaceholderText, getByText, queryByPlaceholderText } = render(
@@ -263,3 +286,4 @@ describe('LoginPage Component', () => {
     expect(mockLoginReset).toHaveBeenCalled();
   });
 });
+

@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { CredentialStorageError } from '../storage/secure';
 
 export type ErrorCategory =
   | 'validation'
@@ -12,6 +13,8 @@ export class AppError extends Error {
   public readonly category: ErrorCategory;
   public readonly code?: string;
   public readonly originalError?: unknown;
+  public retryAfterSeconds?: number;
+  public resetAt?: string;
 
   constructor(message: string, category: ErrorCategory, code?: string, originalError?: unknown) {
     super(message);
@@ -53,6 +56,14 @@ export function normalizeError(error: unknown): AppError {
     return error;
   }
 
+  if (error instanceof CredentialStorageError) {
+    return new AppError(
+      'Secure storage is unavailable or could not save your session. Unlock your device and try signing in again.',
+      'unexpected',
+      'SECURE_STORAGE',
+    );
+  }
+
   if (axios.isAxiosError(error)) {
     // Handle request timeout
     if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
@@ -66,6 +77,22 @@ export function normalizeError(error: unknown): AppError {
 
     const status = error.response.status;
     const data = error.response.data;
+
+    const body = data?.error;
+    if (body && typeof body === 'object' && ['quota_exhausted', 'pending_operation', 'rate_limited'].includes(body.code)) {
+      const header = Number(error.response.headers?.['retry-after']);
+      const seconds = Number.isInteger(body.retry_after_seconds) && body.retry_after_seconds >= 0 ? body.retry_after_seconds : Number.isFinite(header) && header > 0 ? header : undefined;
+      const reset = typeof body.reset_at === 'string' && Number.isFinite(Date.parse(body.reset_at)) ? body.reset_at : undefined;
+      const message = body.code === 'quota_exhausted' ? `Service limit reached.${reset ? ` Resets at ${reset}.` : ''}` : body.code === 'pending_operation' ? 'Your request is still being processed. Check again shortly.' : `Too many attempts.${seconds ? ` Try again in ${seconds} seconds.` : ' Try again later.'}`;
+      const normalized = new AppError(message, 'server', body.code, error);
+      normalized.retryAfterSeconds = seconds;
+      normalized.resetAt = reset;
+      return normalized;
+    }
+
+    if (status === 426 && data?.error?.code === 'upgrade_required') {
+      return new AppError('Update the app to continue.', 'auth', 'UPGRADE_REQUIRED', error);
+    }
 
     // Check if the response contains HTML (usually a web server crash screen or reverse proxy error)
     if (data && typeof data === 'string' && isHtml(data)) {

@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/bcrypt"
 
@@ -159,10 +161,7 @@ func (s *AuthService) Register(ctx context.Context, req models.RegisterRequest, 
 		}
 		user, installationID, err := s.identity.Register(ctx, req, hash, ipAddr, userAgent)
 		if err != nil {
-			if repository.IsDuplicateError(err) || strings.Contains(err.Error(), "duplicate key") {
-				return models.User{}, "", "", appErrors.New("Username or email is already taken", http.StatusConflict)
-			}
-			return models.User{}, "", "", err
+			return models.User{}, "", "", registrationError(err)
 		}
 		return s.issueProductionTokenPair(ctx, user, installationID, ipAddr, userAgent)
 	}
@@ -187,19 +186,30 @@ func (s *AuthService) Register(ctx context.Context, req models.RegisterRequest, 
 	return user, access, refresh, nil
 }
 
+func registrationError(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		switch pgErr.ConstraintName {
+		case "uq_accounts_username_ci":
+			return appErrors.NewCoded("Username is already taken", http.StatusConflict, "USERNAME_TAKEN", nil)
+		case "uq_devices_key":
+			return appErrors.NewCoded("This device identity cannot be used for registration. Try signing in to the existing account.", http.StatusConflict, "DEVICE_IDENTITY_CONFLICT", nil)
+		}
+	}
+	return err
+}
+
 func (s *AuthService) Login(ctx context.Context, req models.LoginRequest, ipAddr, userAgent string) (models.User, string, string, error) {
 	if s.identity != nil {
 		identity, err := s.identity.FindPasswordIdentity(ctx, req.Username)
-		if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return models.User{}, "", "", appErrors.New("Invalid credentials", http.StatusUnauthorized)
+		}
+		if err != nil {
+			return models.User{}, "", "", err
 		}
 		if !checkPasswordCredential(identity.PasswordHash, req.Password) {
 			return models.User{}, "", "", appErrors.New("Invalid credentials", http.StatusUnauthorized)
-		}
-		if strings.TrimSpace(req.GuestID) != "" {
-			if err := s.identity.MergeGuest(ctx, req.GuestID, identity.PrincipalID); err != nil {
-				return models.User{}, "", "", err
-			}
 		}
 		user, err := s.identity.GetProfile(ctx, identity.PrincipalID)
 		if err != nil {
@@ -207,6 +217,9 @@ func (s *AuthService) Login(ctx context.Context, req models.LoginRequest, ipAddr
 		}
 		installationID, err := s.identity.AttachDevice(ctx, user.ID, req.Installation)
 		if err != nil {
+			if errors.Is(err, repository.ErrLegacyIssuanceRestricted) {
+				return models.User{}, "", "", legacyEnrollmentRequired()
+			}
 			return models.User{}, "", "", err
 		}
 		if installationID == "" {
@@ -215,6 +228,9 @@ func (s *AuthService) Login(ctx context.Context, req models.LoginRequest, ipAddr
 		return s.issueProductionTokenPair(ctx, user, installationID, ipAddr, userAgent)
 	}
 	user, err := s.users.GetByUsername(ctx, req.Username)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return models.User{}, "", "", appErrors.New("Invalid credentials", http.StatusUnauthorized)
+	}
 	if err != nil {
 		return models.User{}, "", "", err
 	}
@@ -261,9 +277,21 @@ func (s *AuthService) Refresh(ctx context.Context, refreshToken, userAgent, ipAd
 		if err != nil {
 			return "", "", err
 		}
-		user, sessionID, err := s.identity.RotateRefreshToken(ctx, hashOpaqueToken(refreshToken), hashOpaqueToken(nextRefresh), hint, userAgent, ipAddr, time.Now().Add(30*24*time.Hour))
+		rotate := s.identity.RotateRefreshToken
+		if legacy, ok := s.identity.(interface {
+			RotateLegacyRefreshToken(context.Context, string, string, string, string, string, time.Time) (models.User, string, error)
+		}); ok {
+			rotate = legacy.RotateLegacyRefreshToken
+		}
+		user, sessionID, err := rotate(ctx, hashOpaqueToken(refreshToken), hashOpaqueToken(nextRefresh), hint, userAgent, ipAddr, time.Now().Add(30*24*time.Hour))
 		if err != nil {
-			if err == pgx.ErrNoRows {
+			if errors.Is(err, repository.ErrLegacyIssuanceRestricted) {
+				return "", "", legacyEnrollmentRequired()
+			}
+			if errors.Is(err, repository.ErrRefreshRotationCommitted) {
+				return "", "", err
+			}
+			if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, repository.ErrRefreshTokenReuse) {
 				return "", "", appErrors.ErrUnauthorized
 			}
 			return "", "", err
@@ -313,14 +341,25 @@ func (s *AuthService) RecordPromptAction(ctx context.Context, userID string, req
 }
 
 func (s *AuthService) BootstrapGuest(ctx context.Context, req models.GuestBootstrapRequest, ipAddr, userAgent string) (models.User, string, string, error) {
+	return models.User{}, "", "", appErrors.New("Guest mode is deferred", http.StatusNotImplemented)
+}
+
+func (s *AuthService) ListSessions(ctx context.Context, principalID, currentSessionID string) ([]models.AuthSessionSummary, error) {
 	if s.identity == nil {
-		return models.User{}, "", "", appErrors.New("Guest mode is not enabled on this backend", http.StatusNotImplemented)
+		return nil, appErrors.New("Session management is unavailable", http.StatusNotImplemented)
 	}
-	user, installationID, err := s.identity.BootstrapGuest(ctx, req, ipAddr, userAgent)
-	if err != nil {
-		return models.User{}, "", "", err
+	return s.identity.ListSessions(ctx, principalID, currentSessionID)
+}
+
+func (s *AuthService) RevokeSession(ctx context.Context, principalID, sessionID string) error {
+	if s.identity == nil {
+		return appErrors.New("Session management is unavailable", http.StatusNotImplemented)
 	}
-	return s.issueProductionTokenPair(ctx, user, installationID, ipAddr, userAgent)
+	return s.identity.RevokeSession(ctx, principalID, sessionID)
+}
+
+func legacyEnrollmentRequired() error {
+	return appErrors.NewCoded("Update the app to continue", http.StatusUpgradeRequired, "upgrade_required", nil)
 }
 
 func (s *AuthService) issueProductionTokenPair(ctx context.Context, user models.User, installationID, ipAddr, userAgent string) (models.User, string, string, error) {
@@ -330,6 +369,9 @@ func (s *AuthService) issueProductionTokenPair(ctx context.Context, user models.
 	}
 	sessionID, err := s.identity.CreateAuthSession(ctx, user.ID, installationID, hashOpaqueToken(refresh), hint, userAgent, ipAddr, time.Now().Add(30*24*time.Hour))
 	if err != nil {
+		if errors.Is(err, repository.ErrLegacyIssuanceRestricted) {
+			return models.User{}, "", "", legacyEnrollmentRequired()
+		}
 		return models.User{}, "", "", err
 	}
 	user.DeviceID = installationID
@@ -345,15 +387,20 @@ func (s *AuthService) issueProductionTokenPair(ctx context.Context, user models.
 func (s *AuthService) UsernameExists(ctx context.Context, username string) (bool, error) {
 	if s.identity != nil {
 		_, err := s.identity.FindPasswordIdentity(ctx, username)
-		if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
+		}
+		if err != nil {
+			return false, err
 		}
 		return true, nil
 	}
 	_, err := s.users.GetByUsername(ctx, username)
-	if err != nil {
-		// Assume not found — the repo returns an error for missing rows
+	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
+	}
+	if err != nil {
+		return false, err
 	}
 	return true, nil
 }

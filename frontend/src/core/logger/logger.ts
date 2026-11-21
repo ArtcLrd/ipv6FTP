@@ -8,22 +8,22 @@ const isDev = __DEV__;
 export const logger = {
   info: (message: string, ...args: any[]) => {
     if (isDev) {
-      console.log(`[INFO] ${message}`, ...args);
+      console.log(`[INFO] ${message}`);
     }
   },
   warn: (message: string, ...args: any[]) => {
     if (isDev) {
-      console.warn(`[WARN] ${message}`, ...args);
+      console.warn(`[WARN] ${message}`);
     }
   },
   error: (message: string, ...args: any[]) => {
     if (isDev) {
-      console.error(`[ERROR] ${message}`, ...args);
+      console.error(`[ERROR] ${message}`);
     }
   },
   debug: (message: string, ...args: any[]) => {
     if (isDev) {
-      console.debug(`[DEBUG] ${message}`, ...args);
+      console.debug(`[DEBUG] ${message}`);
     }
   },
 };

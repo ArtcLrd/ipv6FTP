@@ -1,6 +1,22 @@
 package security
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/golang-jwt/jwt/v5"
+)
+
+func TestParseTokenRequiresExpiry(t *testing.T) {
+	secret := []byte("secret")
+	claims := TokenClaims{TokenType: "access", RegisteredClaims: jwt.RegisteredClaims{Issuer: "ipv6ftp-api", Audience: jwt.ClaimStrings{"ipv6ftp-native"}}}
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ParseToken(secret, token, "access"); err == nil {
+		t.Fatal("token without expiration was accepted")
+	}
+}
 
 func TestIssueTokenPairSeparatesRoleAndType(t *testing.T) {
 	secret := []byte("secret")

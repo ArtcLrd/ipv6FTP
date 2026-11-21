@@ -2,22 +2,168 @@ package service
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+
+	appErrors "ipv6ftp/internal/errors"
 	"ipv6ftp/internal/models"
 	"ipv6ftp/internal/repository"
 )
 
+type usernameIdentityRepo struct {
+	repository.IdentityRepo
+	err error
+}
+
+type refreshIdentityRepo struct {
+	repository.IdentityRepo
+	err error
+}
+
+func (r refreshIdentityRepo) RotateRefreshToken(context.Context, string, string, string, string, string, time.Time) (models.User, string, error) {
+	return models.User{}, "", r.err
+}
+
+func TestRefreshDistinguishesRejectedAndUncertainRotation(t *testing.T) {
+	committed := fmt.Errorf("%w: %v", repository.ErrRefreshRotationCommitted, pgx.ErrNoRows)
+	failure := errors.New("database unavailable")
+	for _, tc := range []struct {
+		name             string
+		err              error
+		wantUnauthorized bool
+	}{
+		{"missing token", pgx.ErrNoRows, true},
+		{"token reuse", repository.ErrRefreshTokenReuse, true},
+		{"database failure", failure, false},
+		{"profile missing after commit", committed, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &AuthService{identity: refreshIdentityRepo{err: tc.err}}
+			_, _, err := s.Refresh(context.Background(), "token", "", "")
+			if errors.Is(err, appErrors.ErrUnauthorized) != tc.wantUnauthorized {
+				t.Fatalf("Refresh() error = %v; unauthorized = %v", err, tc.wantUnauthorized)
+			}
+			if !tc.wantUnauthorized && !errors.Is(err, tc.err) {
+				t.Fatalf("Refresh() did not preserve %v: %v", tc.err, err)
+			}
+		})
+	}
+}
+
+func (r usernameIdentityRepo) FindPasswordIdentity(context.Context, string) (repository.PasswordIdentity, error) {
+	return repository.PasswordIdentity{}, r.err
+}
+
+func TestUsernameExistsDistinguishesRepositoryErrors(t *testing.T) {
+	failure := errors.New("database unavailable")
+	for _, tc := range []struct {
+		name       string
+		err        error
+		wantExists bool
+		wantErr    error
+	}{
+		{"found", nil, true, nil},
+		{"missing", pgx.ErrNoRows, false, nil},
+		{"database failure", failure, false, failure},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &AuthService{identity: usernameIdentityRepo{err: tc.err}}
+			exists, err := s.UsernameExists(context.Background(), "alice")
+			if exists != tc.wantExists || !errors.Is(err, tc.wantErr) {
+				t.Fatalf("UsernameExists() = %v, %v; want %v, %v", exists, err, tc.wantExists, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestLoginDistinguishesMissingIdentityFromRepositoryFailure(t *testing.T) {
+	failure := errors.New("database unavailable")
+	for _, tc := range []struct {
+		name       string
+		err        error
+		wantStatus int
+	}{
+		{"missing", pgx.ErrNoRows, 401},
+		{"database failure", failure, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &AuthService{identity: usernameIdentityRepo{err: tc.err}}
+			_, _, _, err := s.Login(context.Background(), models.LoginRequest{Username: "alice", Password: "password"}, "", "")
+			var appErr *appErrors.AppError
+			if tc.wantStatus != 0 {
+				if !errors.As(err, &appErr) || appErr.Status != tc.wantStatus {
+					t.Fatalf("unexpected error: %v", err)
+				}
+			} else if !errors.Is(err, failure) {
+				t.Fatalf("database failure not preserved: %v", err)
+			}
+		})
+	}
+}
+
+func TestRegistrationConflictsIdentifyTheActualConstraint(t *testing.T) {
+	for _, tc := range []struct {
+		constraint string
+		wantCode   string
+	}{
+		{"uq_accounts_username_ci", "USERNAME_TAKEN"},
+		{"uq_devices_key", "DEVICE_IDENTITY_CONFLICT"},
+		{"unrelated_constraint", ""},
+	} {
+		t.Run(tc.constraint, func(t *testing.T) {
+			databaseErr := &pgconn.PgError{Code: "23505", ConstraintName: tc.constraint}
+			err := registrationError(databaseErr)
+			var appErr *appErrors.AppError
+			if tc.wantCode == "" {
+				if !errors.Is(err, databaseErr) {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if !errors.As(err, &appErr) || appErr.Status != 409 || appErr.Code != tc.wantCode {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 type testUserRepo struct {
-	users map[string]models.User
+	users       map[string]models.User
+	usernameErr error
 }
 
 func (r *testUserRepo) Create(ctx context.Context, username, passwordHash, ipAddr string) (models.User, error) {
 	return models.User{}, nil
 }
 func (r *testUserRepo) GetByUsername(ctx context.Context, username string) (models.User, error) {
-	return models.User{}, nil
+	return models.User{}, r.usernameErr
+}
+
+func TestLegacyUsernameExistsDistinguishesRepositoryErrors(t *testing.T) {
+	failure := errors.New("database unavailable")
+	for _, tc := range []struct {
+		name       string
+		err        error
+		wantExists bool
+		wantErr    error
+	}{
+		{"found", nil, true, nil},
+		{"missing", pgx.ErrNoRows, false, nil},
+		{"database failure", failure, false, failure},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &AuthService{users: &testUserRepo{usernameErr: tc.err}}
+			exists, err := s.UsernameExists(context.Background(), "alice")
+			if exists != tc.wantExists || !errors.Is(err, tc.wantErr) {
+				t.Fatalf("UsernameExists() = %v, %v; want %v, %v", exists, err, tc.wantExists, tc.wantErr)
+			}
+		})
+	}
 }
 func (r *testUserRepo) GetByID(ctx context.Context, id string) (models.User, error) {
 	return r.users[id], nil

@@ -51,9 +51,9 @@ export const ApiErrorSchema = z.object({
 
 // ── Auth Response Schema ────────────────────────────────────────────────────
 export const AuthResponseSchema = z.object({
-  access_token: z.string(),
-  refresh_token: z.string(),
-  user: UserSchema,
+  access_token: z.string().min(1),
+  refresh_token: z.string().min(1),
+  user: UserSchema.refine((user) => user.id.trim().length > 0 && user.username.trim().length > 0),
 });
 
 export type AuthResponse = z.infer<typeof AuthResponseSchema>;
@@ -89,19 +89,3 @@ export const PeerInfoSchema = z.object({
 });
 
 export type PeerInfo = z.infer<typeof PeerInfoSchema>;
-
-// ── Ice Server / TURN Schema ────────────────────────────────────────────────
-export const IceServerSchema = z.object({
-  urls: z.union([z.string(), z.array(z.string())]),
-  username: z.string().optional(),
-  credential: z.string().optional(),
-});
-
-export const TurnCredentialsResponseSchema = z.object({
-  servers: z.array(IceServerSchema).default([]),
-});
-
-// ── Create Room Schema ──────────────────────────────────────────────────────
-export const CreateRoomResponseSchema = z.object({
-  room_id: z.string(),
-});

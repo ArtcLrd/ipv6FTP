@@ -39,6 +39,12 @@ func main() {
 			log.Fatalf("server error: %v", err)
 		}
 	}()
+	go func() {
+		log.Printf("IPv6 UDP rendezvous starting on %s", app.Config.RendezvousUDPAddr)
+		if err := app.Rendezvous.Serve(context.Background()); err != nil {
+			log.Printf("UDP rendezvous stopped: %v", err)
+		}
+	}()
 
 	<-shutdown
 

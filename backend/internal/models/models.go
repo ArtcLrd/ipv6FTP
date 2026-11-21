@@ -87,6 +87,15 @@ type DeviceInstallationRequest struct {
 	AppInstanceID  string `json:"app_instance_id,omitempty"`
 }
 
+type AuthSessionSummary struct {
+	ID        string     `json:"id"`
+	DeviceID  string     `json:"device_id"`
+	IssuedAt  time.Time  `json:"issued_at"`
+	ExpiresAt time.Time  `json:"expires_at"`
+	RevokedAt *time.Time `json:"revoked_at,omitempty"`
+	Current   bool       `json:"current"`
+}
+
 type Contact struct {
 	ID        string `json:"id"`
 	Username  string `json:"username"`
@@ -102,8 +111,8 @@ type RoomInviteRequest struct {
 }
 
 type CallInvitationRequest struct {
-	MediaType     string `json:"media_type,omitempty"`
-	NetworkFamily string `json:"network_family,omitempty"`
+	MediaType       string `json:"media_type,omitempty"`
+	ConnectionRoute string `json:"connection_route,omitempty"`
 }
 
 type CallInvitation struct {
@@ -124,21 +133,52 @@ type JoinCallRequest struct {
 }
 
 type JoinCallResponse struct {
-	CallSessionID  string `json:"call_session_id"`
-	ParticipantID  string `json:"participant_id"`
-	MediaType      string `json:"media_type"`
-	NetworkFamily  string `json:"network_family"`
-	PolicyMode     string `json:"policy_mode"`
-	AllowedSeconds *int   `json:"allowed_seconds,omitempty"`
+	CallSessionID   string `json:"call_session_id"`
+	ParticipantID   string `json:"participant_id"`
+	MediaType       string `json:"media_type"`
+	ConnectionRoute string `json:"connection_route"`
+	PolicyMode      string `json:"policy_mode"`
+	AllowedSeconds  *int   `json:"allowed_seconds,omitempty"`
+	State           string `json:"state"`
 }
 
 type CallSignalAuthorization struct {
-	CallSessionID  string `json:"call_session_id"`
-	ParticipantID  string `json:"participant_id"`
-	MediaType      string `json:"media_type"`
-	NetworkFamily  string `json:"network_family"`
-	CallStatus     string `json:"call_status"`
-	AllowedSeconds *int   `json:"allowed_seconds,omitempty"`
+	CallSessionID   string `json:"call_session_id"`
+	ParticipantID   string `json:"participant_id"`
+	MediaType       string `json:"media_type"`
+	ConnectionRoute string `json:"connection_route"`
+	CallStatus      string `json:"call_status"`
+	AllowedSeconds  *int   `json:"allowed_seconds,omitempty"`
+}
+
+type CallSession struct {
+	ID                 string     `json:"id"`
+	CreatorPrincipalID string     `json:"creator_principal_id"`
+	State              string     `json:"state"`
+	MediaType          string     `json:"media_type"`
+	ConnectionRoute    string     `json:"connection_route"`
+	CreatedAt          time.Time  `json:"created_at"`
+	AcceptedAt         *time.Time `json:"accepted_at,omitempty"`
+	ConnectedAt        *time.Time `json:"connected_at,omitempty"`
+	EndedAt            *time.Time `json:"ended_at,omitempty"`
+	EndReason          string     `json:"end_reason,omitempty"`
+	RemotePrincipalID  string     `json:"remote_principal_id,omitempty"`
+	RemoteDeviceID     string     `json:"remote_device_id,omitempty"`
+	RemoteUsername     string     `json:"remote_username,omitempty"`
+	RemoteNoiseKey     string     `json:"remote_noise_static_public_key,omitempty"`
+}
+
+type CallTicket struct {
+	Ticket    string    `json:"ticket"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+type DirectTicket struct {
+	TicketID       string    `json:"ticket_id"`
+	Secret         string    `json:"secret"`
+	RendezvousHost string    `json:"rendezvous_host"`
+	RendezvousPort int       `json:"rendezvous_port"`
+	ExpiresAt      time.Time `json:"expires_at"`
 }
 
 type CallUsageToday struct {

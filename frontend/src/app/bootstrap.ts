@@ -1,8 +1,32 @@
 import * as Sentry from '@sentry/react-native';
+import { AppState } from 'react-native';
 import { initializeNetworkService } from '../services/networkService';
 import { initializeSession } from '../services/authService';
-import { useAuthStore } from '../modules/auth/store';
+import { reconcileSession, reconcileEventSession } from '../modules/auth/api';
+import { observeAccountEvents } from '../realtime/accountEvents';
+import { networkManager } from '../core/network/netinfo';
 import { logger } from '../core/logger/logger';
+
+export function observeSessionResumption(): () => void {
+	const stopEvents = observeAccountEvents(reconcileEventSession);
+  const reconcile = () => { void reconcileSession().catch(() => undefined); };
+  let appState = AppState.currentState;
+  const foreground = AppState.addEventListener('change', (next) => {
+    const resumed = next === 'active' && appState !== 'active';
+    appState = next;
+    if (resumed) reconcile();
+  });
+  let wasOnline: boolean | undefined;
+  const unsubscribe = networkManager.subscribe((state) => {
+    // An unknown transport state must not erase a confirmed disconnect.
+    if (state.isConnected === null && state.isInternetReachable !== false) return;
+    const online = state.isConnected === true && state.isInternetReachable !== false;
+    const reconnected = wasOnline === false && online;
+    wasOnline = online;
+    if (reconnected && appState === 'active') reconcile();
+  });
+  return () => { stopEvents(); foreground.remove(); unsubscribe(); };
+}
 
 export function initSentry() {
   const dsn = process.env.EXPO_PUBLIC_SENTRY_DSN;
@@ -25,8 +49,6 @@ export function initSentry() {
 }
 
 export async function bootstrapApp(): Promise<void> {
-  const setLoading = useAuthStore.getState().setLoading;
-
   // Initialize Sentry monitoring first
   initSentry();
 
@@ -42,7 +64,5 @@ export async function bootstrapApp(): Promise<void> {
     await initializeSession();
   } catch (error) {
     logger.info('No existing session restored during bootstrap');
-  } finally {
-    setLoading(false);
   }
 }

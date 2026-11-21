@@ -40,6 +40,8 @@ interface LoginPageViewProps {
   onLogin: () => void;
   onRegister: () => void;
   onBackToUsername: () => void;
+  onForgotPassword?: () => void;
+  onRemoveProfile?: () => void;
 }
 
 export const LoginPageView = forwardRef<LoginPageViewRef, LoginPageViewProps>(
@@ -57,6 +59,8 @@ export const LoginPageView = forwardRef<LoginPageViewRef, LoginPageViewProps>(
       onLogin,
       onRegister,
       onBackToUsername,
+      onForgotPassword,
+      onRemoveProfile,
     },
     ref
   ) => {
@@ -285,6 +289,7 @@ export const LoginPageView = forwardRef<LoginPageViewRef, LoginPageViewProps>(
                           variant="secondary"
                           onPress={onRegister}
                         />
+                        {onRemoveProfile && <Button title="Remove profile from this device" variant="secondary" onPress={onRemoveProfile} />}
                       </Animated.View>
                     )}
 
@@ -332,6 +337,17 @@ export const LoginPageView = forwardRef<LoginPageViewRef, LoginPageViewProps>(
                           />
                           <Text style={styles.changeUserText}>Not you?</Text>
                         </TouchableOpacity>
+
+                        {!!onForgotPassword && (
+                          <TouchableOpacity
+                            style={styles.changeUserBtn}
+                            onPress={onForgotPassword}
+                            activeOpacity={0.7}
+                            accessibilityRole="link"
+                          >
+                            <Text style={styles.changeUserText}>Forgot password?</Text>
+                          </TouchableOpacity>
+                        )}
 
                         <Input
                           placeholder="Password"

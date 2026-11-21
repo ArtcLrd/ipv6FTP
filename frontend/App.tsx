@@ -1,11 +1,12 @@
 import React, { useEffect } from 'react';
 import { AppProviders } from './src/app/providers';
 import { AppShell } from './src/app/AppShell';
-import { bootstrapApp } from './src/app/bootstrap';
+import { bootstrapApp, observeSessionResumption } from './src/app/bootstrap';
 
 export default function App() {
   useEffect(() => {
-    bootstrapApp();
+    void bootstrapApp();
+    return observeSessionResumption();
   }, []);
 
   return (

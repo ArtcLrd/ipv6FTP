@@ -10,14 +10,28 @@ frontend/ios/
 frontend/web-build/
 frontend/dist/
 backend/dist/
+frontend/build/
+frontend/coverage/
+
+# Local Expo modules generate native output outside frontend/android/
+frontend/modules/**/android/build/
+frontend/modules/**/android/.gradle/
+frontend/modules/**/android/.cxx/
+frontend/modules/**/android/.externalNativeBuild/
+frontend/modules/**/android/local.properties
+frontend/modules/**/ios/build/
+frontend/modules/**/ios/Pods/
 
 # Binary build artifacts
 frontend/*.apk
 frontend/*.aab
+frontend/*.ipa
+frontend/*.app/
 
 # Logs and local build scratch files
 frontend/build_error*.txt
 frontend/expo-start*.log
+*.log
 
 # Go build artifacts
 *.exe
@@ -26,6 +40,12 @@ ipv6ftp
 backend/ipv6ftp
 backend/*.exe
 backend/*~
+backend/bin/
+backend/build/
+backend/coverage/
+*.test
+coverage.out
+coverage.html
 
 # Operating system junk
 .DS_Store
@@ -40,6 +60,8 @@ Thumbs.db
 .env
 .env.local
 .env.production
+.env.*
+!.env*.example
 
 # Agent / tool scratch
 .agents/

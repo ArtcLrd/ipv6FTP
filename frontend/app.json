@@ -24,7 +24,9 @@
         "ACCESS_NETWORK_STATE",
         "RECORD_AUDIO",
         "MODIFY_AUDIO_SETTINGS",
-        "CAMERA"
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_MICROPHONE",
+        "POST_NOTIFICATIONS"
       ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
@@ -39,8 +41,7 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-secure-store",
-      "@config-plugins/react-native-webrtc"
+      "expo-secure-store"
     ],
     "extra": {
       "eas": {

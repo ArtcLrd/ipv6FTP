@@ -1,37 +1,36 @@
 import { create } from 'zustand';
-import { CallState } from './types';
-import type { MediaStream } from 'react-native-webrtc';
+import type { CallRole, CallState } from './types';
 
 interface CallStore {
   callState: CallState;
   callSessionID: string | null;
+  role: CallRole | null;
   remoteUser: string | null;
-  localStream: MediaStream | null;
-  remoteStream: MediaStream | null;
-  setCallState: (state: CallState) => void;
-  setCallSessionID: (callSessionID: string | null) => void;
-  setRemoteUser: (user: string | null) => void;
-  setLocalStream: (stream: MediaStream | null) => void;
-  setRemoteStream: (stream: MediaStream | null) => void;
+  invitationCode: string | null;
+  verificationCode: string | null;
+  verificationRemembered: boolean;
+  muted: boolean;
+  speaker: boolean;
+  error: string | null;
+  setCall: (values: Partial<CallStore>) => void;
   resetCall: () => void;
 }
 
-export const useCallStore = create<CallStore>((set) => ({
-  callState: 'idle',
+const initial = {
+  callState: 'idle' as CallState,
   callSessionID: null,
+  role: null,
   remoteUser: null,
-  localStream: null,
-  remoteStream: null,
-  setCallState: (callState) => set({ callState }),
-  setCallSessionID: (callSessionID) => set({ callSessionID }),
-  setRemoteUser: (remoteUser) => set({ remoteUser }),
-  setLocalStream: (localStream) => set({ localStream }),
-  setRemoteStream: (remoteStream) => set({ remoteStream }),
-  resetCall: () => set({ 
-    callState: 'idle', 
-    callSessionID: null,
-    remoteUser: null, 
-    localStream: null, 
-    remoteStream: null 
-  }),
+  invitationCode: null,
+  verificationCode: null,
+  verificationRemembered: false,
+  muted: false,
+  speaker: false,
+  error: null,
+};
+
+export const useCallStore = create<CallStore>((set) => ({
+  ...initial,
+  setCall: (values) => set(values),
+  resetCall: () => set(initial),
 }));
