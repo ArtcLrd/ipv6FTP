@@ -1,10 +1,10 @@
-# Current implementation: registered users, guests, and connections
+# Historical September 2026 implementation baseline
 
-> Historical baseline: this September review predates the newer partial native IPv6 working-tree code. For the proposed lifecycle read [session management](session-management.md) and [call/peer connection](call-peer-connection.md). This file is retained as historical source evidence, not an up-to-date implementation inventory.
+> Historical baseline: this September review predates the newer partial native IPv6 working-tree code. For the proposed lifecycle read [session management](flows.md) and [call/peer connection](flows.md). This file is retained as historical source evidence, not an up-to-date implementation inventory.
 
 **Source inspection: 2026-09-19. Scope: Expo app and Go backend.** This describes code paths present in the repository, including incomplete wiring. It is not a successful two-device call test or confirmation that SQL migrations are applied to a running database. No database was accessed for this review.
 
-Read this before extending session management. [system.md](system.md), [flows.md](flows.md), and [protocol.md](protocol.md) describe the target architecture; the custom authenticated Noise/media-packet design is not the current voice transport. [session-management.md](session-management.md) records the implementation gaps and proposed next work.
+This September snapshot describes the former WebRTC paths. See [system status](system.md#currently-implemented-in-code) for the newer native Android source and [flows](flows.md) for the target.
 
 ## 1. What runs where
 
@@ -221,5 +221,3 @@ Paths are repository-relative, kept as text so this documentation folder remains
 | SQL identity/rotation/merge | `backend/migrations/008_identity_functions_and_call_flows.sql`; guest override in `011_fix_guest_identity_ambiguous_columns.sql` |
 | SQL validation/start/guest limits | `backend/migrations/009_secure_sessions_and_guest_calls.sql`; signaling authorization in `010_call_signal_authorization.sql` |
 | Latest policy/join/end functions | `backend/migrations/012_registered_acl_quotas_prompts.sql`; create-invitation override in `013_fix_call_invitation_allowed_seconds.sql` |
-
-

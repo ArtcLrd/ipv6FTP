@@ -4,13 +4,13 @@ The root [AGENTS.md](../AGENTS.md) contains the repository rules. This file is a
 
 ## Current phase
 
-Active development targets the **Expo / React Native app** in `frontend/` and the **Go backend** in `backend/`. The separate `frontend-web/` app is deferred until the user explicitly starts that phase. Preserve it without routine exploration, testing, or synchronized feature work.
+Active development targets the **Expo / React Native app** in `frontend/` and the **Go backend backed by PostgreSQL** in `backend/`. The separate `frontend-web/` app is deferred until the user explicitly starts that phase. Preserve it without routine exploration, testing, or synchronized feature work.
 
-The [system overview](voice-architecture/system.md) is canonical. [Call implementation proposed V2](voice-architecture/call_implementation_proposed_v2.md) owns the accepted calling plan, detailed flows, provisional defaults, integration phases and acceptance criteria; it supersedes the initial [call proposal](voice-architecture/call-peer-connection.md). [Session V2](voice-architecture/session-management-proposed-v2.md) owns accepted user/device enrollment, persistence/recovery, guest weekly policy/gates/reminders, per-API rates, concurrency, retention and validation; it supersedes initial session research and preserves calling V2 integration. The [September baseline](voice-architecture/current-implementation.md) is historical WebRTC/guest/contact code; newer working-tree code contains partial registered-only Android native Noise/direct-IPv6 calling. Distinguish proposal, source implementation and runtime verification. The [UI brief](../frontend/design.md) remains separate.
+Start at the [canonical architecture](voice-architecture/system.md). It separates current Go/PostgreSQL and Expo source from the target account and calling flows. See the [verification evidence](voice-architecture/user-management-evidence.md) for test scope and the [historical September baseline](voice-architecture/current-implementation.md) for WebRTC history. The [UI brief](../frontend/design.md) remains separate.
 
 ## Find the affected flow
 
-For the next user-management implementation, start with [the consolidated execution plan](voice-architecture/user-management-implementation-plan.md): it records D01-D17, account-module ownership, phased contracts and validation. It incorporates identity/session prerequisites now and reserves actual call-bound accounting/media verification for Calling V2 integration. [Contracts v2 draft](voice-architecture/user-management-contracts-v2.md) holds the M0 contract freeze and open decisions. It is a plan, not current implementation evidence; preserve the invariants in Session V2 and the canonical system overview.
+Start with [flows](voice-architecture/flows.md), [protocol](voice-architecture/protocol.md), and [decisions](voice-architecture/decisions.md) for account and session work. For account invalidation and reconciliation, start at `frontend/src/realtime/accountEvents.ts` and `frontend/src/app/bootstrap.ts`. For calling, follow the Expo coordinator into the local Android module.
 
 Paths in this table are repository-relative. Start with the relevant row, then follow actual imports and callers rather than reading every listed area.
 
@@ -28,7 +28,7 @@ Paths in this table are repository-relative. Start with the relevant row, then f
 | HTTP contract/permissions | `backend/internal/transport/http/router.go` | `handlers/`, `middleware/`, `rbac/`, `service/` |
 | Business rules/persistence | `backend/internal/service/`, `backend/internal/repository/` | Models and the relevant SQL definitions in migrations |
 | Database schema change | Matching repository query/function and `backend/migrations/` filenames | Relevant SQL only; `backend/cmd/migrate/main.go` for runner behavior |
-| Registered enrollment and cutover | `backend/internal/service/auth_v2.go`, Expo auth module, Android voice engine | [Migration 018 and cutover review](voice-architecture/migration-018-review.md) |
+| Registered enrollment and cutover | `backend/internal/service/auth_v2.go`, Expo auth module, Android voice engine | [Migration 018 and cutover review](../sql/migrations/018_review.sql) |
 | Regression coverage | Nearest `*_test.go` or `__tests__/` | Test setup and direct dependencies; inspect side effects |
 
 Frontend paths abbreviated after the first entry are relative to `frontend/src/`. Backend handler/service/repository paths are under `backend/internal/` unless otherwise shown. Check current source before assuming an API or event name.
@@ -39,8 +39,7 @@ Typical API flow: `screen -> module hook/store/API -> core API client -> Go rout
 
 | Impact | Documents to inspect/update |
 | --- | --- |
-| Proposed calling journeys, protocol defaults and validation | [call_implementation_proposed_v2.md](voice-architecture/call_implementation_proposed_v2.md), system overview and affected detailed documents |
-| User/session prerequisites and historical source evidence | [session-management-proposed-v2.md](voice-architecture/session-management-proposed-v2.md); initial [session-management.md](voice-architecture/session-management.md) is superseded; [current-implementation.md](voice-architecture/current-implementation.md) is the September baseline, not current verification |
+| Calling and account journeys | [flows.md](voice-architecture/flows.md), [system status](voice-architecture/system.md#currently-implemented-in-code) |
 | Components, ownership, trust/data boundaries | [system.md](voice-architecture/system.md) |
 | Setup, lifecycle, media, recovery, teardown | [flows.md](voice-architecture/flows.md), plus system overview |
 | State machine, frame/contract semantics | [protocol.md](voice-architecture/protocol.md), affected flows/system overview |
@@ -53,7 +52,7 @@ Update docs in the same change as code. A refactor with no externally visible be
 
 ## Toolchain baseline and known mismatches
 
-Observed on 2026-09-19. Manifests and lockfiles remain authoritative for dependencies; the host observations below are not new approved project pins.
+Host versions rechecked on 2026-11-22. Manifests and lockfiles remain authoritative for dependencies. The host observations below do not set project versions.
 
 | Tool/component | Repository declaration | Observed local state / policy |
 | --- | --- | --- |
@@ -82,7 +81,7 @@ Lockfiles should be queried for individual packages, not dumped into context. `n
 
 The mobile manifest advertises lint/format checks, but no mobile ESLint/Prettier config was found in the inspected tree. Verify installed tools and current configs before treating those scripts as working checks; do not install or upgrade tools just to silence failure.
 
-Root `Makefile` and `Dockerfile` reference `frontend` scripts such as `build`/`dev` that are absent from the current Expo manifest. Do not use them as validated Expo workflows or repair them as an unrelated side task. `frontend/app.json` configures a native WebRTC plugin; the app explicitly handles a missing native WebRTC module, so an Expo Go launch alone cannot verify calling behavior.
+Root `Makefile` and `Dockerfile` reference `frontend` scripts such as `build`/`dev` that are absent from the current Expo manifest. Do not use them as validated Expo workflows or repair them as an unrelated side task. `frontend/app.json` configures Expo. Native Android calling requires an installed build that includes `frontend/modules/voice-engine`; Expo Go cannot verify that path.
 
 Starting the backend connects to configured PostgreSQL/cache services. Runtime API calls and integration tests may write data even if their purpose is verification; use inspected mocks or explicitly authorized test targets.
 
@@ -92,7 +91,7 @@ When the requested feature needs a schema/data change, prepare files without app
 
 1. Inspect relevant repository calls and migration filenames; choose the next unused consistently padded numeric prefix for `<number>_<description>.sql`.
 2. Add a new migration; preserve prior files. The runner records checksums and rejects changed historical migrations. It skips `init_all.sql` and sorts versions lexically.
-3. Include review notes beside the migration or in a linked review document: purpose, affected objects/rows, dependencies, permissions, locks/data-loss risks if applicable, deployment ordering, verification queries, and rollback/recovery constraints.
+3. Put review context in comments in each new migration. Refer to the [historical SQL reviews](../sql/migrations/) for migrations 014–020. Include the purpose, affected objects/rows, dependencies, permissions, locks/data-loss risks if applicable, deployment ordering, verification queries, and rollback/recovery constraints.
 4. Distinguish migration files prepared, SQL reviewed, and execution verified. Report the user-run step and any feature dependency on the unapplied migration.
 5. Never apply, reset, seed, or mutate a connected database unless the user explicitly authorizes execution for that target. Mentioning a database feature is not permission to execute a migration.
 

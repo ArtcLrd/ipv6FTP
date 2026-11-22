@@ -1,5 +1,7 @@
 # Security and privacy model
 
+## Currently Implemented in Code
+
 Account event tickets are bound to the authenticated principal, device, session and authorization generation. Only a hash is stored, consumption is atomic, and the stream revalidates durable session authorization. Tickets travel as a WebSocket subprotocol rather than a query parameter. Messages are invalidations; the client obtains an authenticated bootstrap snapshot before changing protected state. Database and device verification are pending.
 
 Account switching compares the password-authenticated enrollment challenge principal with the retained device profile before native proof. Profile removal clears the retained record after the scoped native key and peer trust have been removed.
@@ -34,93 +36,135 @@ V2 restore reads the installed Android key and compares its derived X25519 finge
 
 > Partial implementation: session-validation infrastructure errors propagate to the middleware and return `AUTH_UNAVAILABLE` instead of being represented as invalid sessions. The client limits interceptor refresh to `ACCESS_EXPIRED`, uses partial in-process generation fencing and persists uncertain refresh outcomes. Outage-safe recovery and lifecycle tests remain incomplete.
 
-> Planned account-security refinement (2026-10-31): [user-management plan](user-management-implementation-plan.md) requires purpose-bound device enrollment, durable generations, single-use saved recovery codes, optional unique verified recovery email with in-app one-time codes, fresh authentication for sensitive changes, seven-day deletion cancellation without credential revival, and minimal permanent username retirement. MFA is deferred, so do not claim MFA or a higher assurance level from device metadata. Resend processes security-email recipient/content data; provider keys stay backend-only, delivery is not verification, and callbacks require authentication/replay handling. Contacts grant directional ringing permission but never cryptographic trust. No IP/email/status disclosure through discovery. These controls remain unimplemented/unverified until milestone evidence exists.
+## Target New Flow (To Be Implemented)
 
-> Accepted session boundary (2026-10-20): [session V2](session-management-proposed-v2.md) separates device-key authentication from best-effort Android recognition used only for quota restrictions. Reinstall matching never restores old identity/data/trust. Every protected operation checks durable authorization/ownership, guest explicit logout ends local key recovery, and credentials never enter logs. Backend revocation, independent per-API limits, minimal audit and bounded recovery supplement native key/packet checks. Accepted policy is not a verified security guarantee.
+The account enrollment and peer-call handshakes have different purposes. Treat network input and rendezvous metadata as untrusted. Room codes locate sessions and do not prove identity. Endpoint compromise and denial of service remain outside the protection offered by E2EE. Relay service and IP-hidden routing are deferred. Keep plaintext media, private keys, traffic keys, credentials and recovery-code values out of server storage, logs and telemetry. See [decisions](decisions.md) for the selected enrollment profile and [system status](system.md#currently-implemented-in-code) for the current source snapshot.
 
-> Design update (2026-10-17): [V2](call_implementation_proposed_v2.md) specifies current calling trust/packet boundaries, full-fingerprint QR/link verification and remembered device keys, replay-safe controls, validated migration, key limits, 30-second authorization, and safety intervention. Enrollment uses a separate accepted Noise IK candidate in the user/session boundary. IPv6 address or account login alone never establishes intended-peer trust. Restrict even authenticated decoder/control input; captured ciphertext/metadata, flooding and endpoint compromise remain limitations. Client termination cannot undo an exploit or forcibly stop uncooperative direct endpoints. V2 takes precedence over older open-choice statements below; no implementation guarantee is implied.
+## Calling V2
 
-This describes target requirements, not an audit or verification of the repository. The main boundary is **authentication, replay protection, and protocol authorization before decoding or performing operations**.
+### 6. Handshake and canonical context
 
-Historical code boundaries appear in [current-implementation.md](current-implementation.md). Newer native code still requires review and remediation, especially readiness, verification-send ordering, the full replay-window design, bounded input, renewal and cleanup. V2 specifies desired behavior, not evidence those gaps have been repaired.
+Use the candidate `Noise_XX_25519_ChaChaPoly_SHA256` through reviewed Android/Go-compatible implementations. Original caller is initiator; peer is responder. Enrollment Noise IK is separate. Peer private keys and derived media keys never go to the server.
 
-## 1. Assets and trust boundaries
+After mutual readiness, the initiator sends XX message 1; responder processes and sends message 2; initiator processes and sends message 3. Verify the expected static device keys and agreed context; complete handshake before installing transport state. Follow library state transitions rather than implementing raw cryptography.
 
-Protected assets include voice contents, identity secrets, ephemeral secrets, traffic keys, user consent, and call integrity. Addresses and traffic metadata have different exposure properties.
+#### Deterministic context
 
-| Boundary | Required treatment |
-| --- | --- |
-| Internet to listener | Hostile datagrams receive bounded parsing and authentication |
-| Rendezvous to peer identity | Server-authenticated signaling alone does not prove the intended person's device key |
-| Ciphertext to plaintext | Authentication failure never releases tentative plaintext to consumers |
-| Authenticated message to operation | Enforce schemas, negotiated capabilities, state, and consent |
-| Voice frame to decoder | Apply codec bounds; authenticated peers may be malicious |
-| Application to host | Expose only intended ports/services |
+Encode a fixed-order deterministic-CBOR structure containing:
 
-## 2. Identity and handshake
+1. Application/protocol identifier and version.
+2. Logical call ID, proposed 128-bit connection ID and key generation.
+3. Initiator principal UUID, device UUID and 32-byte X25519 public key.
+4. Responder principal UUID, device UUID and public key.
+5. Agreed media profile and direct-IPv6 routing policy.
 
-V2 selects X25519 device identity with fresh ephemeral material and candidate Noise XX for peer calls. Device-server enrollment's accepted candidate is separate Noise IK. Exact application encoding, library compatibility and review remain prerequisites, not implementation guarantees.
+Use UUIDs as 16-byte values, unsigned integers within defined ranges, and fixed initiator/responder ordering. Bind through the Noise prologue. No usernames, tokens, IPs or wall-clock-dependent values belong in this identity context. Both endpoints must agree on the connection reference before readiness; different context bytes fail authentication. Specify exact CBOR field/type codes and test vectors before coding interoperability.
 
-V2 requires independent full-fingerprint link/QR comparison at first contact and changed keys, then remembers verified device-key bindings locally. There is no initial unverified-audio bypass. A username, directory entry, IP or newly enrolled replacement key cannot silently inherit trust. Revoked keys remain blocked. Security-policy and trust-format changes can require renewed verification.
+REST may remain JSON; it is not the canonical cryptographic encoding. Deterministic CBOR uses fixed schemas, definite lengths and a restricted type set; reject noncanonical encodings, unknown fields/tags, unsupported versions, ambiguous numbers and excessive nesting. No arbitrary data graphs or executable payloads.
 
-A compromised rendezvous can try key substitution. Protection requires a trust anchor or verification channel it cannot replace. If clients accept any key supplied by rendezvous, protection from a malicious rendezvous cannot be claimed. Changed-key, revocation, recovery, and guest policies must be specified.
+#### Failure/duplication
 
-Bind agreed security context through the selected protocol's mechanisms. Merely exchanging ephemeral public keys does not authenticate a person. See the [Noise Protocol Framework](https://noiseprotocol.org/noise.html) for protocol and application responsibilities.
+Wrong expected key, conflicting generation/context, unexpected handshake step or failed authentication aborts the setup attempt. Duplicate delivered frames must not advance Noise twice; reconcile by step and bounded stored message identity. Conflicting duplicates fail the attempt. Bound frame sizes and total processing. An outsider's invalid post-setup datagram is discarded, not an instruction to terminate a healthy call or trigger expensive handshakes.
 
-## 3. Cryptographic invariants
+No fallback to an unauthenticated/weaker profile. Ordered WSS delivery does not eliminate application deadlines or reconnect state. Any direct-UDP carriage of renewal/recovery handshake frames needs an explicit bounded encapsulation/retry contract; a generic encrypted control channel alone is not that complete specification.
 
-Source requirements are separate directional keys, authenticated transcript/context, encode-before-encrypt, authenticate-before-decode, packet-number replay protection, and endpoint-only media keys on every path.
+### 7. Verification links, QR, and remembered trust
 
-Proposed completion requirements:
+#### First contact
 
-- Follow the selected library/profile's key schedule, nonce construction, and usage limits.
-- Authenticate security-relevant application headers as AAD.
-- Never reuse a key/nonce pair for distinct encrypted packets across streams, controls, retries, restart, or migration.
-- Unauthenticated input cannot change replay state, call state, keys, or trusted destination paths.
-- Use platform cryptographically secure randomness and the selected library's peer-key validation.
-- Discard transient secrets on termination and protect durable identity storage.
+1. Finish the handshake and locally obtain its full 256-bit fingerprint/hash under the finalized profile.
+2. Offer Share verification link, Show/Scan QR, and a full readable fallback. Both link and QR encode the same versioned call/generation/fingerprint binding.
+3. Compare through an independently authenticated external channel, or scan directly in person. Our own signaling service distributing matching values is not independent verification.
+4. Recipient parses locally and matches against its active handshake. Opening a URL must not join, replace trust, fetch arbitrary destinations, authorize operations or start capture.
+5. Each side explicitly confirms its own comparison. Mismatch, decline, stale generation or timeout ends setup; no unverified-audio bypass initially.
+6. Exchange protected, handshake/generation-bound confirmations after a destination/transport is available. Remember successful device trust only under the intended binding; retain enough provisional local confirmation state without sending prematurely.
 
-Verify nonce and associated-data handling against the selected AEAD contract; [RFC 5116](https://www.rfc-editor.org/rfc/rfc5116) defines the generic requirements.
+Verification URLs contain no private/media keys, auth/refresh tokens or join credentials. Use app/HTTPS links; a fragment is a candidate payload location but does not eliminate history/share/log leakage. App-link association, exact encoding, local validation and expiry handling require specification. Do not shorten the fingerprint to a few digits without a reviewed short-authentication-string protocol.
 
-## 4. Threat model
+#### Returning peers
 
-| Threat | Target defense | Limitation |
+Store local principal scope, remote principal/device/public-key binding, verification method/time and record version. No arbitrary time expiry initially. Fresh handshakes check this binding automatically; manual comparison is unnecessary for unchanged verified device identities even after IP changes or media-key renewal.
+
+Require fresh verification for a new phone/key, forgotten/lost/reset trust or incompatible security policy. A revoked key is blocked until authorized replacement, not merely accepted by another QR confirmation. Ordinary logout may retain protected account-scoped trust; a different local account cannot inherit it. Reinstall/new phone does not automatically migrate trust. Guest conversion transfers trust only through an ownership-preserving user/session operation. Backend metadata cannot silently overwrite verified keys. Labels say Verified device/Previously verified device/Device key changed, not Safe person.
+
+### 14. Key renewal
+
+Device identity persists separately from temporary traffic keys. Proposed operational defaults: begin fresh-handshake renewal at 45 minutes; stop old-key use at 60 minutes or 2^20 allocated packets in either direction, whichever is first. Start early enough before packet limits to finish renewal; never wait until exhaustion. These are conservative application test defaults, not universal cipher security limits.
+
+Original initiator coordinates; the other peer may request renewal. Negotiate one pending next generation. Use fresh ephemeral handshake material, expected verified identities, canonical context and new connection reference. Routine renewal retains device trust and media timeline, not media keys. A changed identity key requires fresh human verification.
+
+Prepare new receive state before switching sends; old/new keys and replay windows remain separate. At most two seconds of old receive overlap, further bounded by hard key/authorization deadlines. Drop stale audio regardless of overlap. An explicit promotion/loss-recovery contract must prevent one-sided key switches; do not claim that generic ACKs alone solve this.
+
+Old audio may continue during renewal while authorized and within limits. If renewal fails, retry within budget; at hard expiry pause/stop old-key media and recover or end. Never extend key use indefinitely or fall back to old keys after retirement. Rate-limit/coalesce requests; a malicious peer cannot force unlimited parallel handshakes. Direct renewal requires a specified reliable handshake-control encapsulation; WSS forwarding is an alternative control route, not media forwarding.
+
+### 15. Authorization leases and one-phone enforcement
+
+Each participant renews a proposed 30-second call authorization every 10 seconds via Go; no extra grace after expiry. Validate current session/device, active-phone authorization generation, both accepted participant bindings, call/generation state, restrictions and allowance before extending. Revoking A prevents continuation renewal for the affected call, including B's authorization. Do not grant stale cached permission after a durable revocation.
+
+Lease binding includes call/participant/device/session ownership, authorization and connection generations, expiry and operation identity as needed. Exact response schema remains to specify. Use authenticated server responses and conservative monotonic local deadlines; delayed responses, wall-clock rollback, suspension or retry cannot extend authorization. Recheck before resuming capture after wake.
+
+Healthy peer audio may continue during backend outage only until current lease expiry. Retry boundedly; success before expiry continues the call, otherwise stop. Redis failure allows only an explicitly safe authoritative fallback; otherwise renewal fails closed. Access-token refresh alone does not rekey audio.
+
+Successful new-phone login/enrollment atomically replaces active-phone ownership and revokes old sessions. Failed attempts do not disturb the old call. Notify both old call participants; refuse renewal; stop via client finalizer. New phone does not inherit the active call or old trust; start a new call and verify its device key. Account recovery is specified elsewhere. Immediate remote termination cannot be guaranteed offline; a compliant client is bounded by the remaining lease. Compromised endpoints may ignore policy.
+
+## Session V2
+
+### 2. Identities and replaceable providers
+
+| Concept | Purpose | Not sufficient for |
 | --- | --- | --- |
-| Copy packet fields and forge voice | AEAD before dispatch | Depends on keys, nonce safety, and implementation correctness |
-| Modify ciphertext or protected header | Tag verification | Attacker can still cause loss |
-| Replay a valid packet | Replay window | State must remain correct under concurrency and recovery |
-| Substitute handshake keys | Authenticated protocol plus intended-peer trust policy | Malicious-rendezvous resistance needs an independent trust basis |
-| Guess a room code | Separate admission, consent, and peer verification | Discovery abuse still needs limits |
-| Reflect packets into opposite direction | Distinct directional keys | Role/key mapping must be correct |
-| Send authenticated malformed media | Schemas, frame limits, maintained codec | Decoder vulnerabilities remain possible |
-| Send a forbidden operation | Explicit types and state authorization | No generic execution path may exist |
-| Redirect using a copied connection ID | Authenticated path/return-reachability validation | Migration protocol remains open |
-| Flood endpoint/service | Firewall, quotas, bounded processing | Link saturation and denial of service remain possible |
-| Compromise relay | Endpoint-held keys and protected frames | Relay sees metadata and may disrupt/correlate traffic |
-| Compromise endpoint or malicious participant | Outside E2EE boundary | Plaintext may be captured or recorded locally |
+| Principal UUID | Registered/guest subject and ownership | Proving possession |
+| Backend device UUID | Stable enrolled-device reference | Permanent physical-phone identity |
+| Device key | Protected private material plus enrolled public verification key | Account recovery after key loss without other proof |
+| Auth session UUID | Device-bound server authorization | Proof that an old token is still valid |
+| Access/refresh credentials | Present/renew session authorization | Ignoring revocation or active-phone rules |
+| Recognition signal | Best-effort reinstall quota continuity | Restoring prior identity, data or peer trust |
+| Allowance bucket | Shared accounting scope for recognized guest enrollments | Account authentication |
+| Call/connection generations | Fence stale call/identity operations | Independent permission |
 
-Forward secrecy depends on the chosen ephemeral authenticated construction and secret deletion. Naming X25519 alone does not establish that guarantee.
+UUIDs reduce simple enumeration; ownership checks and parameterized SQL remain necessary. IDs, usernames, IPs and public keys alone are not authentication secrets.
 
-## 5. Endpoint protection
+#### Recognition and identity providers
 
-Use IPv6 firewall rules, minimal listeners, strict parsing, and resource/rate limits before and after authentication. Unknown sessions must not create unlimited state or large responses. Bound logs so packet floods cannot exhaust disk or CPU.
+Keep separate interfaces for recognition, cryptographic identity, backend device ownership and allowance policy. Record provider/type, algorithm or credential profile where relevant, version, scope and status. The rest of session management depends on those contracts, not a hardcoded Android API or cipher.
 
-Keep maintained codecs behind validation and restrict frame size and negotiated parameters. Authentication does not make a decoder invulnerable. Relay authorization and quotas must prevent open forwarding and amplification.
+Android recognition initially uses ANDROID_ID, not IMEI. Backend derives a purpose-scoped, versioned keyed representation for lookup. This minimizes raw identifier handling; it does not validate truth of the client signal or make records anonymous. Modified clients can falsify signals. Ordinary reinstall deterrence is the objective; factory-reset resistance and permanent physical-device bans are not promised. Android user/profile and signing changes can affect recognition.
 
-## 6. Privacy by mode
+Provider changes require explicit linkage/migration, controlled key rotation and retirement; they must not silently allocate fresh quota. Changing cryptographic keys requires ownership/re-enrollment checks and fresh peer trust as calling V2 requires. A DB toggle cannot implement an unsupported algorithm. Define transition tests before replacing providers. iOS recognition is not assumed equivalent: identifierForVendor can change after uninstall, and DeviceCheck offers limited anti-abuse state rather than an arbitrary quota identifier. Exact iOS policy remains deferred.
 
-| Mode | Peer visibility | Infrastructure visibility | Not guaranteed |
-| --- | --- | --- | --- |
-| Direct IPv6 | Other caller's current media endpoint | Signaling metadata and network addresses/timing/sizes | IP hiding or resistance to traffic analysis |
-| Relay-only / IP-hidden from peer | Relay address; direct address must be absent from signaling/probes | Single relay sees connecting endpoints and traffic metadata | Anonymity from relay or rendezvous |
-| Multi-hop, future | Depends on chosen routing protocol | Depends on relay roles and collusion | No assurance until specified and verified |
+#### Binding rules
 
-Select privacy mode before direct candidate exchange or probing. Hiding addresses in the UI after a direct attempt does not retract disclosure. Relay failure must not trigger direct fallback in this mode.
+One current account profile per recognized device in first delivery, and one active phone per account under calling V2. Do not provide simultaneous account profiles or independent fresh guest allowances through reinstall. Same-account restoration/recovery remains possible. Controlled account replacement/removal must support shared/resold devices without exposing old data; its exact authorization/UX is a prerequisite, not an irreversible lifetime device-to-owner binding.
 
-A blind relay is blind to media plaintext, not metadata. Sizes, timing, duration, and participation may remain visible. Padding, traffic shaping, anonymous credentials, and defenses against global observers are not specified.
+### 7. Expiry and refresh
 
-## 7. Logs and lifecycle
+| Parameter | Accepted configurable default |
+| --- | --- |
+| Access lifetime | 15 minutes |
+| Auth session | Absolute 30 days from issuance |
+| Additional idle expiry | None initially |
+| Call continuation | Calling V2: 30-second lease renewed every 10 seconds, no extra grace |
 
-Proposed logs contain aggregate outcomes, selected path category, bounded errors, and coarse quality metrics. Exclude private keys, shared secrets, media keys, raw/decrypted audio, access tokens, and usable join codes. Minimize stable identifiers and endpoint addresses; define retention and operator access.
+Refresh preserves absolute auth expiry and never resets usage. Policy changes follow section 10; local time changes cannot extend authorization. Registered users reauthenticate after underlying expiry; eligible guests may key-recover to a new session. Early revocation overrides remaining token lifetime.
 
-Key loss, rotation, identity changes, recovery, and deletion require explicit policies. Memory-erasure guarantees depend on the platform/runtime and must not be overstated. See [decisions.md](decisions.md) for acceptance checks.
+#### Successful refresh
+
+1. One coordinated refresh per client credential/identity generation. Eligible expired requests wait; do not refresh indiscriminately on every error.
+2. Backend verifies refresh/session/device/principal/active ownership and expiry. Refresh cannot be used after explicit logout/replacement/revocation.
+3. In one transaction consume old token and issue replacement, preserving session reference and absolute deadline. Persist hashed secrets and enough lineage to detect reuse.
+4. Persist the replacement bundle before unblocking requests. Each eligible waiting request retries at most once; prevent loops.
+5. Logout/account switch/recovery invalidates outstanding generation; late refresh responses cannot restore previous credentials.
+
+#### Lost response and reuse
+
+Timeout alone does not prove revocation or rollback. Do not blindly replay a potentially consumed refresh token. Mark uncertain credentials as needing controlled recovery, preserving device identity. Guest uses approved key recovery, registered user login. Successful recovery atomically replaces the uncertain session and invalidates remaining refresh credentials without resetting allowance. No stored seamless refresh-response replay service initially. Confirmed token reuse invokes session/descendant revocation under the defined lineage policy; distinguish it from merely observing a timeout. A committed successor must never be reactivated by a stale retry/result. Active calls stop if renewal misses their existing lease deadline.
+
+### 17. Retention and audit
+
+Accepted configurable starting defaults: inactive guest cleanup after 90 days and device-recognition association retention for 90 days after last legitimate service use. Do not let repeated registration-gate openings or token refresh alone extend recognition retention indefinitely. Temporary attempts/challenges/tickets/results expire promptly under bounded policies. Audit records use separately chosen category retention; 90 days does not automatically apply to all logs.
+
+Before deleting records, reconcile active auth/calls/reservations/accounting and preserve applicable period restrictions so cleanup cannot grant fresh quota. Resolve concurrent recovery/cleanup transactionally. Exact inactive-guest timestamp/eligibility, recognition rotation/deletion, shared-device replacement and minimum accounting retention are specification prerequisites. Recognition expiry can intentionally end best-effort continuity; do not promise permanent device tracking.
+
+Guest call history remains unavailable in the app, while minimal backend usage/security records remain. Critical audit contains server time, restricted internal references, operation ID, policy/generation, outcome/bounded reason and authorized administrative changes. Critical records/outbox commit with corresponding mutations. Diagnostic logs are bounded and cannot block all work or grow indefinitely. Restrict audit access.
+
+Never log raw access/refresh credentials, passwords, private keys, recovery/enrollment secrets, full authorization headers, audio payloads or routine raw recognition identifiers. Retained keyed identifiers and metadata still require access/retention controls; do not call them anonymous. Independent evidence review distinguishes reported events from proven state.
