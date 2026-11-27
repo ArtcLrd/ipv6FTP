@@ -34,9 +34,20 @@ func main() {
 }
 
 func run(ctx context.Context, args []string) error {
-	_ = godotenv.Load()
+	isolatedEnv := false
+	filtered := make([]string, 0, len(args))
+	for _, arg := range args {
+		if arg == "--isolated-env" {
+			isolatedEnv = true
+			continue
+		}
+		filtered = append(filtered, arg)
+	}
+	if !isolatedEnv {
+		_ = godotenv.Load()
+	}
 
-	command, allowDestructiveReset, err := parseArgs(args)
+	command, allowDestructiveReset, err := parseArgs(filtered)
 	if err != nil {
 		return err
 	}
@@ -44,7 +55,10 @@ func run(ctx context.Context, args []string) error {
 		return fmt.Errorf("unsupported command %q; use up or status [--allow-destructive-reset]", command)
 	}
 
-	connString := firstEnv("MIGRATOR_DATABASE_URL", "DATABASE_URL", "SUPABASE_DB_URL", "POSTGRES_URL")
+	connString := firstEnv("MIGRATOR_DATABASE_URL")
+	if !isolatedEnv && connString == "" {
+		connString = firstEnv("DATABASE_URL", "SUPABASE_DB_URL", "POSTGRES_URL")
+	}
 	if connString == "" {
 		return errors.New("MIGRATOR_DATABASE_URL or DATABASE_URL is required")
 	}
@@ -77,6 +91,8 @@ func parseArgs(args []string) (string, bool, error) {
 			command = strings.TrimSpace(arg)
 		case "--allow-destructive-reset":
 			allowDestructiveReset = true
+		case "--isolated-env":
+			return "", false, errors.New("--isolated-env must be handled before argument parsing")
 		default:
 			return "", false, fmt.Errorf("unsupported argument %q", arg)
 		}

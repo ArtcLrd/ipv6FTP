@@ -69,3 +69,5 @@ Thumbs.db
 .codex-gotmp/
 .go-cache/
 .go-tmp/
+
+docs/CURRENT_TASK.md

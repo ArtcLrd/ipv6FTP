@@ -1,0 +1,47 @@
+services:
+  postgres:
+    image: postgres:18.4
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${IPV6FTP_INTEGRATION_POSTGRES_PASSWORD:?set by test-integration-docker.sh}
+      POSTGRES_DB: postgres
+      IPV6FTP_TEST_ROLE_PASSWORD: ${IPV6FTP_INTEGRATION_TEST_ROLE_PASSWORD:?set by test-integration-docker.sh}
+      IPV6FTP_TEST_FIXTURE_TOKEN: ${IPV6FTP_INTEGRATION_FIXTURE_TOKEN:?set by test-integration-docker.sh}
+    volumes:
+      - ./scripts/integration-db-init.sh:/docker-entrypoint-initdb.d/10-integration-init.sh:ro
+    tmpfs:
+      - /var/lib/postgresql
+    networks:
+      - integration
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ipv6ftp_auto_test -d postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: "no"
+
+  runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.integration
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      GOTOOLCHAIN: local
+      IPV6FTP_TEST_MAINTENANCE_URL: postgres://ipv6ftp_auto_test:${IPV6FTP_INTEGRATION_TEST_ROLE_PASSWORD:?set by test-integration-docker.sh}@127.0.0.1:5432/postgres?sslmode=disable
+      IPV6FTP_TEST_FIXTURE_TOKEN: ${IPV6FTP_INTEGRATION_FIXTURE_TOKEN:?set by test-integration-docker.sh}
+      IPV6FTP_INTEGRATION_TEST_ROLE_PASSWORD: ${IPV6FTP_INTEGRATION_TEST_ROLE_PASSWORD:?set by test-integration-docker.sh}
+      IPV6FTP_SCHEMA_BASELINE_MODE: ${IPV6FTP_SCHEMA_BASELINE_MODE:-}
+      IPV6FTP_SCHEMA_BASELINE_CONFIRM: ${IPV6FTP_SCHEMA_BASELINE_CONFIRM:-}
+      IPV6FTP_SCHEMA_BASELINE_SOURCE_SERVICE: ipv6ftp_schema_source
+      IPV6FTP_SCHEMA_BASELINE_RESTORE_SERVICE: ipv6ftp_schema_restore
+      IPV6FTP_SCHEMA_BASELINE_SOURCE_DSN: service=ipv6ftp_schema_source dbname=ipv6test_schema_source
+    volumes:
+      - ./db/schema:/workspace/backend/db/schema:rw
+    network_mode: service:postgres
+    restart: "no"
+
+networks:
+  integration:
+    internal: true

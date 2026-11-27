@@ -1,22 +1,22 @@
+//go:build integration
+
 package accountsec
 
 import (
 	"context"
 	"crypto/rand"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"ipv6ftp/internal/testutil"
 )
 
 // This creates test principals and must only run against a separately authorized disposable database.
 func TestPostgresAccountEventIsolationAndRollback(t *testing.T) {
-	dsn := os.Getenv("IPV6FTP_ISOLATED_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("set IPV6FTP_ISOLATED_TEST_DATABASE_URL to an authorized disposable target")
-	}
+	dsn := testutil.RequirePostgresDSN(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	pool, err := pgxpool.New(ctx, dsn)
@@ -27,8 +27,10 @@ func TestPostgresAccountEventIsolationAndRollback(t *testing.T) {
 	repo := New(pool)
 	ids := make([]string, 0, 2)
 	defer func() {
+		cleanup, stop := context.WithTimeout(context.Background(), 5*time.Second)
+		defer stop()
 		for _, id := range ids {
-			if _, err := pool.Exec(context.Background(), `DELETE FROM iam.principals WHERE id=$1::uuid`, id); err != nil {
+			if _, err := pool.Exec(cleanup, `DELETE FROM iam.principals WHERE id=$1::uuid`, id); err != nil {
 				t.Error(err)
 			}
 		}

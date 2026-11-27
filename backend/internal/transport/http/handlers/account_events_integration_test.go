@@ -1,3 +1,5 @@
+//go:build integration
+
 package handlers
 
 import (
@@ -9,13 +11,14 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"ipv6ftp/internal/testutil"
 )
 
 type eventTestSession struct{ principal, session, device string }
@@ -31,10 +34,7 @@ func (v eventTestValidator) ValidateSession(_ context.Context, principal, sessio
 
 // This test writes test principals and events: run only on an explicitly authorized disposable target.
 func TestPostgresEventStreamIsolationReplayAndExpiry(t *testing.T) {
-	dsn := os.Getenv("IPV6FTP_ISOLATED_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("set IPV6FTP_ISOLATED_TEST_DATABASE_URL to an authorized disposable target")
-	}
+	dsn := testutil.RequirePostgresDSN(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	pool, err := pgxpool.New(ctx, dsn)
@@ -44,8 +44,10 @@ func TestPostgresEventStreamIsolationReplayAndExpiry(t *testing.T) {
 	defer pool.Close()
 	sessions := make([]eventTestSession, 0, 2)
 	defer func() {
+		cleanup, stop := context.WithTimeout(context.Background(), 5*time.Second)
+		defer stop()
 		for _, s := range sessions {
-			if _, err := pool.Exec(context.Background(), `DELETE FROM iam.principals WHERE id=$1::uuid`, s.principal); err != nil {
+			if _, err := pool.Exec(cleanup, `DELETE FROM iam.principals WHERE id=$1::uuid`, s.principal); err != nil {
 				t.Error(err)
 			}
 		}

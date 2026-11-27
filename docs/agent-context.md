@@ -6,7 +6,7 @@ The root [AGENTS.md](../AGENTS.md) contains the repository rules. This file is a
 
 Active development targets the **Expo / React Native app** in `frontend/` and the **Go backend backed by PostgreSQL** in `backend/`. The separate `frontend-web/` app is deferred until the user explicitly starts that phase. Preserve it without routine exploration, testing, or synchronized feature work.
 
-Start at the [canonical architecture](voice-architecture/system.md). It separates current Go/PostgreSQL and Expo source from the target account and calling flows. See the [verification evidence](voice-architecture/user-management-evidence.md) for test scope and the [historical September baseline](voice-architecture/current-implementation.md) for WebRTC history. The [UI brief](../frontend/design.md) remains separate.
+Start at the [canonical architecture](voice-architecture/system.md). It separates current Go/PostgreSQL and Expo source from the target account and calling flows. See the [verification evidence](voice-architecture/user-management-evidence.md) for test scope and the [historical September baseline](voice-architecture/current-implementation.md) for WebRTC history. The [UI brief](../frontend/design.md) remains separate. For user-facing disposable Docker tests, schema-baseline generation, and USB device checks, start at the [testing runbook](voice-architecture/testing-runbook.md); deployment documentation retains verification evidence and operational boundaries. The harness scripts are `backend/scripts/test-integration-docker.sh` (integration tests + baseline generation mode), `backend/scripts/test-device-docker.sh` (disposable backend for a USB-connected physical phone), and `frontend/scripts/android-device.sh` (device-side check/connect/module-tests/install/teardown).
 
 ## Find the affected flow
 
@@ -78,6 +78,8 @@ Lockfiles should be queried for individual packages, not dumped into context. `n
 | Format changed Go source | `backend/` | `gofmt -w <changed.go>` |
 | Mobile dev server, only when useful to the task | `frontend/` | `npm start`; review environment/endpoints before exercising flows |
 | Migration execution | `backend/` | User-run after review; not part of ordinary agent validation |
+| Disposable Docker integration tests / schema baseline | `backend/` | User-run: `sh scripts/test-integration-docker.sh` (add `IPV6FTP_SCHEMA_BASELINE_MODE=1` + `IPV6FTP_SCHEMA_BASELINE_CONFIRM=...` to regenerate `db/schema/baseline.sql`); offline-only: `sh scripts/test-integration-docker.Tests.sh` |
+| Disposable Docker backend for a physical phone | `backend/` then `frontend/` | User-run: `sh backend/scripts/test-device-docker.sh`, then `sh frontend/scripts/android-device.sh check\|connect\|module-tests\|install\|teardown` with the phone on USB |
 
 The mobile manifest advertises lint/format checks, but no mobile ESLint/Prettier config was found in the inspected tree. Verify installed tools and current configs before treating those scripts as working checks; do not install or upgrade tools just to silence failure.
 

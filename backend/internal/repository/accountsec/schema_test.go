@@ -70,6 +70,18 @@ var used = map[string][]string{
 	"iam.username_reservations":   {"canonical", "principal_id", "kind"},
 }
 
+func TestCredentialRevocationTimestampsRespectIssueAndCreationTimes(t *testing.T) {
+	src := readFile(t, "repo.go")
+	for _, want := range []string{
+		"SET revoked_at = GREATEST(s.issued_at, clock_timestamp())",
+		"SET revoked_at = GREATEST(d.created_at, clock_timestamp())",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("ApplyCredentialChange revocation SQL must contain %q", want)
+		}
+	}
+}
+
 func TestRepositoryUsesOnlyColumnsThatExist(t *testing.T) {
 	s := schema(t)
 	for table, cols := range used {

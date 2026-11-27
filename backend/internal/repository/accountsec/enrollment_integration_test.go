@@ -1,12 +1,14 @@
+//go:build integration
+
 package accountsec
 
 import (
 	"context"
 	"crypto/ecdh"
 	"crypto/rand"
+	"crypto/sha256"
 	"errors"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
@@ -16,15 +18,13 @@ import (
 	"ipv6ftp/internal/accountpolicy"
 	"ipv6ftp/internal/repository"
 	"ipv6ftp/internal/service"
+	"ipv6ftp/internal/testutil"
 )
 
 // This test creates and removes its own accounts on an explicitly supplied,
 // migrated, disposable PostgreSQL target.
 func TestPostgresRegisteredEnrollment(t *testing.T) {
-	dsn := os.Getenv("IPV6FTP_ISOLATED_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("set IPV6FTP_ISOLATED_TEST_DATABASE_URL to an authorized disposable target")
-	}
+	dsn := testutil.RequirePostgresDSN(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	pool, err := pgxpool.New(ctx, dsn)
@@ -47,7 +47,8 @@ func TestPostgresRegisteredEnrollment(t *testing.T) {
 			if _, err := rand.Read(b[:]); err != nil {
 				t.Fatal(err)
 			}
-			return fmt.Sprintf("%x", b)
+			hex := fmt.Sprintf("%x", b)
+			return fmt.Sprintf("%s-%s-%s-%s-%s", hex[:8], hex[8:12], hex[12:16], hex[16:20], hex[20:])
 		}
 		return service.EnrollCommit{PrincipalID: principal, DeviceID: uuid(), SessionID: uuid(),
 			PublicKey: key.PublicKey().Bytes(), ExpectedGeneration: generation, ExpectedCredentialVersion: 1,
@@ -73,7 +74,9 @@ func TestPostgresRegisteredEnrollment(t *testing.T) {
 			})
 			generation := int64(1)
 			if scenario == "legacy_cutover" {
-				testLegacyCutover(ctx, t, pool, commit(principal, 0), commit(principal, 0).RefreshHash)
+				legacyCommit := commit(principal, 0)
+				newHash := fmt.Sprintf("%x", sha256.Sum256([]byte(legacyCommit.RefreshHash)))
+				testLegacyCutover(ctx, t, pool, legacyCommit, newHash)
 				return
 			}
 			var oldSession string
@@ -234,8 +237,12 @@ func testLegacyCutover(ctx context.Context, t *testing.T, pool *pgxpool.Pool, c 
 	if err := legacy.ValidateSession(ctx, c.PrincipalID, c.SessionID, c.DeviceID, 1); err != nil {
 		t.Fatalf("legacy session rejected before cutover: %v", err)
 	}
-	if _, sessionID, err := legacy.RotateLegacyRefreshToken(ctx, c.RefreshHash, newHash, "", "", "", c.SessionExpires); err != nil || sessionID != c.SessionID {
+	_, sessionID, err := legacy.RotateLegacyRefreshToken(ctx, c.RefreshHash, newHash, "", "", "", c.SessionExpires)
+	if err != nil {
 		t.Fatalf("legacy refresh failed before cutover: %v", err)
+	}
+	if sessionID != c.SessionID {
+		t.Fatalf("legacy refresh returned session ID %q, want %q", sessionID, c.SessionID)
 	}
 	// Use the rollout statement with a principal filter to protect other fixtures.
 	result, err := pool.Exec(ctx, `

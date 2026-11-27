@@ -248,15 +248,17 @@ func (r *Repo) ApplyCredentialChange(ctx context.Context, principalID string, ex
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
-			UPDATE iam.auth_sessions SET revoked_at = NOW()
-			 WHERE revoked_at IS NULL
+			UPDATE iam.auth_sessions s
+			   SET revoked_at = GREATEST(s.issued_at, clock_timestamp())
+			 WHERE s.revoked_at IS NULL
 			   AND device_id IN (SELECT id FROM iam.devices WHERE principal_id = $1::uuid)`, principalID); err != nil {
 			return err
 		}
 		if revokeDevices {
 			if _, err := tx.Exec(ctx, `
-				UPDATE iam.devices SET revoked_at = NOW()
-				 WHERE principal_id = $1::uuid AND revoked_at IS NULL`, principalID); err != nil {
+				UPDATE iam.devices d
+			   SET revoked_at = GREATEST(d.created_at, clock_timestamp())
+			 WHERE d.principal_id = $1::uuid AND d.revoked_at IS NULL`, principalID); err != nil {
 				return err
 			}
 		}

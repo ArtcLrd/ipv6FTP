@@ -8,6 +8,66 @@ Account event delivery requires reviewed migrations 019 and 020 before the event
 
 Apply the reviewed registered foundations migration before deploying the new backend. Establish the signer pin while the existing X25519 key remains current. Configure a canonical HTTPS origin, a base64 SEC1 P-256 signing key, and an integer epoch. When switching the advertised X25519 key, increment the epoch and retain the previous private key and ID across replicas until its outstanding challenges expire. See the [migration and cutover review](../../sql/migrations/018_review.sql).
 
+## PostgreSQL integration test tooling (authorized fresh Docker runs; baseline GENERATED)
+
+**Verified 2026-11-24:** the authorized command `cd backend && ./scripts/test-integration-docker.sh` ran under unique Compose project `ipv6ftp-it-bdfd81111e5c1cbe`, using a fresh PostgreSQL container and applying migrations 001–020 in that disposable environment. All three selected Critical/High tests passed (`selected=3 passed=3`): `TestPostgresRegisteredEnrollment` (including subtests), `TestPostgresAccountEventIsolationAndRollback`, and `TestPostgresEventStreamIsolationReplayAndExpiry`. The script's teardown removed its container and network. Subsequent `docker ps -a` and a network query filtered by the exact Compose project label found no resources. The PowerShell offline guard test passed; `bash -n` and Compose config validation passed.
+
+This evidence covers only the selected tests and the disposable run. Collision refusal and failure/TERM cleanup have offline shell tests using a fake Docker CLI; no actual Docker signal run was performed. The harness checks for existing container, network, and volume labels before arming cleanup, and refuses collisions without Compose mutation. Run `sh backend/scripts/test-integration-docker.Tests.sh` for these deterministic offline checks. An actual Docker signal test is intentionally not run here; if needed, run it only after explicit authorization with the disposable harness and inspect resources by the exact `com.docker.compose.project` label. It does not establish full-suite or production readiness.
+
+**Baseline generated and parity-verified (2026-11-24, project `ipv6ftp-it-34e102e8acb1d48f`).** The operator ran `IPV6FTP_SCHEMA_BASELINE_MODE=1 IPV6FTP_SCHEMA_BASELINE_CONFIRM=generate-disposable-schema-baseline sh scripts/test-integration-docker.sh` from `backend/` with `IPV6FTP_INTEGRATION_PROJECT_SUFFIX` unset. Migrations 001–020 replayed in the fresh source fixture, the schema-only dump restored transactionally into a separate fresh fixture without resetting PostgreSQL's default `public` schema, and normalized-dump parity (including ACLs and comments, excluding ownership and row data) passed before atomic publication. `backend/db/schema/baseline.sql` is 41,822 bytes, SHA-256 `2c484bf042212151b7da1ab23a55791e993a255f9499ea71e9d30c6523a8703a`. Subsequent `docker ps -a`/`network ls`/`volume ls` filtered on that exact project label found no resources.
+
+The baseline CLI expects `psql` and `pg_dump` on PATH; the integration image installs PostgreSQL client utilities and a static libpq service file for localhost services `ipv6ftp_schema_source` and `ipv6ftp_schema_restore`. The isolated bootstrap creates `ipv6test_schema_source` and `ipv6test_schema_restore` with exact identity comments. Baseline generation is a separate runner mode requiring `IPV6FTP_SCHEMA_BASELINE_MODE=1` and an independently supplied `IPV6FTP_SCHEMA_BASELINE_CONFIRM` token; it migrates the fresh source fixture first, then calls the generator. The random fixture role password is supplied via `PGPASSWORD`, and ambient `DATABASE_URL` is cleared. Only `backend/db/schema/` is mounted writable for output. Normal runner mode remains unchanged when baseline mode is not selected. The CLI validates fixture identity, restores source dump into the restore fixture, compares normalized dumps, and atomically publishes only after parity. The baseline is now GENERATED (evidence above); regenerate only via another explicitly authorized live execution of this harness. Never point fixture names at a persistent database.
+
+**Fixture boundary:** baseline generation restores the source dump in a single transaction into the fresh restore database with PostgreSQL’s default `public` schema intact. It no longer drops or recreates `public`. Parity includes dumped ACLs and comments, but excludes ownership and row data. Use the Compose harness only, never a persistent database or a direct host invocation. A matching comment is not proof of fixture provenance. The live run above established parity and published the baseline; do not rerun this command casually, since each run re-verifies parity against the ordered migrations as of that run.
+
+With Docker Desktop running locally, run from the repository root in Bash. Use the harness to create and clean up a new disposable Compose project; do not supply an existing project suffix:
+
+```bash
+(unset IPV6FTP_INTEGRATION_PROJECT_SUFFIX
+ cd backend && IPV6FTP_SCHEMA_BASELINE_MODE=1 \
+   IPV6FTP_SCHEMA_BASELINE_CONFIRM=generate-disposable-schema-baseline \
+   sh scripts/test-integration-docker.sh)
+```
+
+Success reports `schema-only baseline generated at db/schema/baseline.sql after restore parity verification`; this has already been run successfully (evidence above). If the run fails, retain its output for review; do not run the CLI directly against another database. For user-facing test commands and navigation, including the remaining baseline-ledger gate, see the [testing runbook](testing-runbook.md).
+
+## Windows physical Android device test environment
+
+Target is a single USB-connected physical phone; an emulator path is deferred and intentionally not built yet. No app end-to-end calling journey is in scope here — this environment covers connectivity and the native module's instrumentation tests.
+
+**Prerequisites (user installs and verifies; this section does not install anything):**
+
+| Requirement | Source of truth in this repo |
+| --- | --- |
+| JDK 17, set as `JAVA_HOME` | Matches `connectedDebugAndroidTest` evidence below |
+| Android SDK Platform 36, Build-Tools 36.0.0, NDK 27.1.12297006, CMake, Platform-Tools (`adb`) on PATH, `ANDROID_HOME` set | `frontend/node_modules/react-native/gradle/libs.versions.toml` |
+| Gradle 8.14.3 via the wrapper (`gradlew.bat`) | `frontend/android/gradle/wrapper/gradle-wrapper.properties` |
+| `GRADLE_USER_HOME` set to a short path (for example `C:\g`) to avoid Windows path-length limits in the native CMake build | `docs/voice-architecture/user-management-evidence.md` |
+| Phone on Android API 29 or later, Developer Options and USB debugging enabled, RSA fingerprint accepted | `frontend/modules/voice-engine/android/build.gradle` `minSdk 29` |
+| Node 22.x / npm 10.x with the project-local Expo 54.0.35 | `frontend/package.json` |
+
+Read-only verification commands (no install, no device mutation): `java -version`, `adb version`, `adb devices -l`, `adb shell getprop ro.build.version.sdk`, `sdkmanager --list_installed`.
+
+**Disposable backend for the phone.** The dev build needs an HTTP/WS backend reachable at `127.0.0.1:8080` on the phone via `adb reverse`; it never uses host PostgreSQL or any persistent database. From `backend/`, run:
+
+```bash
+sh scripts/test-device-docker.sh
+```
+
+This starts a unique Compose project (`ipv6ftp-dev-<hex>`) with a disposable PostgreSQL container, migrates it, and runs the API server in the foreground. It follows the same name-collision refusal and EXIT/HUP/INT/TERM cleanup rules as `test-integration-docker.sh` (offline-verified: `sh backend/scripts/test-device-docker.Tests.sh`; no live Docker signal run performed). Once the log shows `ipv6FTP server starting on :8080`, leave it running and use a second terminal for the device side below. Press Ctrl+C to stop and remove it.
+
+**Device side.** From `frontend/`, with exactly one authorized phone attached (or `ANDROID_SERIAL` set if more than one):
+
+```bash
+sh scripts/android-device.sh check          # tool/device/API-level preflight only
+sh scripts/android-device.sh connect         # adb reverse tcp:8080 tcp:8080
+sh scripts/android-device.sh module-tests    # :ipv6ftp-voice-engine:connectedDebugAndroidTest
+sh scripts/android-device.sh install         # expo run:android dev build, --device <serial>
+sh scripts/android-device.sh teardown        # removes the adb reverse
+```
+
+Every subcommand requires an authorized USB-connected physical phone, including when `ANDROID_SERIAL` is set. Emulator, wireless and offline targets are rejected; no local app data is cleared. Offline coverage: `sh frontend/scripts/android-device.Tests.sh` (fake `adb`, Gradle wrapper, and npm; no real device or Docker). Live device runs (`check`, `module-tests` with the actual phone) are user-run; report serial, API level, and command output.
+
 ## Target New Flow (To Be Implemented)
 
 Deploy compatible PostgreSQL schema and Go services first, then the Expo client. Production signaling requires HTTPS/WSS and reachable IPv6 UDP rendezvous. The relay is deferred. Use the [SQL review files](../../sql/migrations/) for prerequisites, privileges, rollout, verification and recovery. Apply migrations only on the separately approved target.
