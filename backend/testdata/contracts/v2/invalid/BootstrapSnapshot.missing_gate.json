@@ -1,0 +1,1 @@
+{"account_type":"registered","policy_version":4,"generation":3,"device_id":"123e4567-e89b-12d3-a456-426614174000","session_id":"123e4567-e89b-12d3-a456-426614174000","schema_version":2,"capabilities":["direct_ipv6_call","contacts"],"revision":12,"account_state":"active","eligibility":{"allowed_seconds":1},"username":"alice","principal_id":"123e4567-e89b-12d3-a456-426614174000"}

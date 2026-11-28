@@ -1,0 +1,51 @@
+# Disposable backend for a USB-connected physical Android phone. Serves the
+# HTTP/WS API over 127.0.0.1:8080 so the host can `adb reverse tcp:8080
+# tcp:8080`. Media/calling stays outside this scope: the rendezvous UDP port
+# is not published. Never point this compose file at a persistent database.
+services:
+  postgres:
+    image: postgres:18.4
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${IPV6FTP_DEVICE_POSTGRES_PASSWORD:?set by test-device-docker.sh}
+      POSTGRES_DB: postgres
+      IPV6FTP_DEVICE_ROLE_PASSWORD: ${IPV6FTP_DEVICE_ROLE_PASSWORD:?set by test-device-docker.sh}
+    volumes:
+      - ./scripts/device-db-init.sh:/docker-entrypoint-initdb.d/10-device-init.sh:ro
+    tmpfs:
+      - /var/lib/postgresql
+    networks:
+      - device
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ipv6ftp_device -d ipv6ftp_device"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.device
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      GOTOOLCHAIN: local
+      ENVIRONMENT: development
+      PORT: 8080
+      IPV6FTP_DEVICE_ROLE_PASSWORD: ${IPV6FTP_DEVICE_ROLE_PASSWORD:?set by test-device-docker.sh}
+      DATABASE_URL: postgres://ipv6ftp_device:${IPV6FTP_DEVICE_ROLE_PASSWORD:?set by test-device-docker.sh}@postgres:5432/ipv6ftp_device?sslmode=disable
+      JWT_SECRET: ${IPV6FTP_DEVICE_JWT_SECRET:?set by test-device-docker.sh}
+      RECOVERY_PEPPER: ${IPV6FTP_DEVICE_RECOVERY_PEPPER:?set by test-device-docker.sh}
+      EMAIL_PAYLOAD_KEY: ${IPV6FTP_DEVICE_EMAIL_PAYLOAD_KEY:?set by test-device-docker.sh}
+      NOISE_STATIC_KEY: ${IPV6FTP_DEVICE_NOISE_STATIC_KEY:?set by test-device-docker.sh}
+      NOISE_KEY_ID: device-test-key
+    ports:
+      - "127.0.0.1:8080:8080"
+    networks:
+      - device
+    restart: "no"
+
+networks:
+  device: {}

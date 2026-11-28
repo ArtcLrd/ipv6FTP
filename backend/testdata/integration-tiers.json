@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "tests": [
+    {
+      "package": "internal/repository/accountsec",
+      "name": "TestPostgresRegisteredEnrollment",
+      "tier": "Critical",
+      "reason": "Protects credential enrollment, session issuance, and concurrent account-security state transitions."
+    },
+    {
+      "package": "internal/repository/accountsec",
+      "name": "TestPostgresAccountEventIsolationAndRollback",
+      "tier": "High",
+      "reason": "Verifies account-event isolation and transactional rollback in persistent state."
+    },
+    {
+      "package": "internal/transport/http/handlers",
+      "name": "TestPostgresEventStreamIsolationReplayAndExpiry",
+      "tier": "High",
+      "reason": "Verifies authenticated event-stream isolation, replay, and ticket expiry across accounts."
+    }
+  ]
+}

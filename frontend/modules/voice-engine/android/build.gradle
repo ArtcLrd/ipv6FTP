@@ -1,0 +1,26 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.ipv6ftp'
+version = '1.0.0'
+
+android {
+  namespace 'expo.modules.ipv6voice'
+  useLibrary 'android.test.base'
+  useLibrary 'android.test.runner'
+  defaultConfig {
+    minSdk 29
+    versionName project.version.toString()
+    testInstrumentationRunner 'android.test.InstrumentationTestRunner'
+  }
+  sourceSets {
+    androidTest.assets.srcDir '../../../../backend/testdata/noise'
+  }
+}
+
+dependencies {
+  // Immutable upstream revision; do not replace with a branch or release alias.
+  implementation 'com.github.rweather:noise-java:49377b6dfc6a1e75740bce2318118291a57c0d6e'
+}

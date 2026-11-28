@@ -29,13 +29,13 @@ RUN go mod download
 # Copy all backend source
 COPY backend/ ./
 
-# Copy the built React app from Stage 1 into backend/dist/
+# Copy the built React app from Stage 1 into backend/cmd/api/dist/
 # This is what //go:embed all:dist picks up
-COPY --from=frontend-builder /app/frontend/dist ./dist
+COPY --from=frontend-builder /app/frontend/dist ./cmd/api/dist
 
 # Build the binary — dist is now embedded inside it
 # CGO_ENABLED=0 ensures a static binary that runs on Alpine
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -a -tags netgo -o ipv6ftp .
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -a -tags netgo -o ipv6ftp ./cmd/api/
 
 # ─────────────────────────────────────────────────────────────────
 # Stage 3: Minimal runtime image (~10MB total)

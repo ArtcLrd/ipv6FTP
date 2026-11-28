@@ -1,0 +1,1 @@
+{"schema_version":2,"revision":12,"principal_id":"123e4567-e89b-12d3-a456-426614174000","device_id":"123e4567-e89b-12d3-a456-426614174000","session_id":"123e4567-e89b-12d3-a456-426614174000","generation":3,"username":"alice","account_type":"registered","account_state":"active","capabilities":[],"policy_version":4,"eligibility":{"all_services_gated":true,"allowed_seconds":-1}}
