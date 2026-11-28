@@ -22,6 +22,15 @@ Keep these evidence levels distinct:
 - Do not wipe Android app data. The device helper supports only authorized USB-connected physical phones and uses `adb reverse` for host connectivity; it does not permit emulator/wireless targets.
 - Treat all outputs as potentially sensitive. Do not publish generated credentials, tokens, or connection strings.
 
+## Feature verification gate
+
+Use this checklist for the [repository's pre-staging gate](../../AGENTS.md#feature-verification-gate-before-staging-or-committing):
+
+1. Translate the acceptance criteria into tests. Assert observable outcomes and data/state changes, not just a successful response. Include relevant rejection, rollback, or regression cases. Run focused Go/Expo tests and Expo typecheck where applicable; see the [command map](../agent-context.md#commands-and-existing-caveats).
+2. For backend changes, run the **default Docker integration suite** below. If the feature changes behavior that depends on PostgreSQL or backend integration, add or update a feature-specific Go integration test. Register any new top-level test in `backend/testdata/integration-tiers.json` at the appropriate tier and confirm the runner actually selected and passed it. The wrapper only runs Critical/High today; if a required case is not selected, report it as blocked rather than changing its tier just to make the gate pass.
+3. For Android native or mobile-to-backend changes, run the **USB device workflow** below and exercise the changed behavior on the app against the disposable API. Add or update native instrumentation for changed native behavior. For a feature journey not covered by automation, document the exact test steps, expected outcomes and observed results. A passing `/healthz` or module smoke run alone does not validate a feature journey.
+4. Obtain explicit execution authorization for the disposable target before running checks that write to its database; otherwise give the operator the exact commands and request the results. Capture the evidence listed in [Results to report](#results-to-report). Verify the final candidate after fixes. If any required check failed, was not selected, or could not be run or confirmed, report the feature as **not ready to stage or commit**. Offline checks and previous runs are not substitutes for required live evidence.
+
 ## Backend integration tests
 
 ### Prerequisites

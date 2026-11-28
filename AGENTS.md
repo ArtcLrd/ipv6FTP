@@ -39,6 +39,11 @@
 - Handle loading, empty, error, cancellation, and cleanup behavior where the change needs them; preserve authorization, API compatibility, and resource limits.
 - Validate the changed behavior, update affected docs, and review the final diff. Report outcome, checks, limitations, pending migrations, and architectural impact concisely.
 
+## Feature verification gate (before staging or committing)
+- For every feature or bug fix, add or update tests for its acceptance criteria: verify outcomes and data/state changes, plus relevant error, boundary, or regression cases. Run the focused checks and the applicable [disposable testing workflow](docs/voice-architecture/testing-runbook.md#feature-verification-gate); a passing smoke check does not replace a feature-specific test.
+- Use the disposable Docker integration harness for backend changes and the USB device workflow for Android native or mobile-to-backend behavior. For client-only logic or UI with no native/backend impact, run focused Expo tests and typecheck and state why the live workflows do not apply. Docs-only changes need documentation checks, not live workflows.
+- Keep the database boundary above: get explicit execution authorization for the disposable target or give the operator the exact commands for a user-run check. Failures, missing feature coverage, unavailable prerequisites, and unconfirmed required runs block readiness; report what remains, then verify the final candidate before recommending staging or committing. The user alone stages and commits.
+
 ## File-scoped commands
 - From `frontend/`: `npm test -- --runTestsByPath src/path/to/file.test.ts --runInBand` for a relevant existing/new test; `npm run typecheck` for project-aware TypeScript checking.
 - From `backend/`: `go test ./internal/<package> -run <TestName>` for focused tests; `gofmt -w <changed.go>` for changed Go files only. Use the approved existing toolchain; do not auto-fetch another one.
